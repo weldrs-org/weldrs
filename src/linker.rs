@@ -230,6 +230,31 @@ impl Linker {
     }
 }
 
+// ── Visualization (feature-gated) ─────────────────────────────────
+
+#[cfg(feature = "visualize")]
+impl Linker {
+    /// Render a waterfall chart for a single record pair as an SVG string.
+    pub fn waterfall_chart_svg(
+        &self,
+        predictions: &DataFrame,
+        row_index: usize,
+        options: &crate::visualize::ChartOptions,
+    ) -> Result<String> {
+        let waterfall = self.explain_pair(predictions, row_index)?;
+        crate::visualize::waterfall_chart_svg(&waterfall, options)
+    }
+
+    /// Render a match weights chart for the trained model as an SVG string.
+    pub fn match_weights_chart_svg(
+        &self,
+        options: &crate::visualize::ChartOptions,
+    ) -> Result<String> {
+        let summary = self.model_summary();
+        crate::visualize::match_weights_chart_svg(&summary, options)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

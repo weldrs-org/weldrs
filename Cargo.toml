@@ -16,6 +16,7 @@ path = "src/lib.rs"
 
 [features]
 simd = ["triple_accel"]
+visualize = ["plotters"]
 
 [dependencies]
 polars = { version = "0.46", features = [
@@ -39,6 +40,7 @@ rayon = "1.11"
 rand = "0.8"
 rustc-hash = "2"
 triple_accel = { version = "0.4", optional = true }
+plotters = { version = "0.3", optional = true, default-features = false, features = ["svg_backend", "line_series"] }
 
 [dev-dependencies]
 polars = { version = "0.46", features = ["csv"] }
@@ -63,3 +65,7 @@ harness = false
 [[bench]]
 name = "predict_bench"
 harness = false
+
+[[example]]
+name = "visualize_charts"
+required-features = ["visualize"]

@@ -15,6 +15,9 @@ pub enum WeldrsError {
     /// JSON serialization or deserialization failed.
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
+    /// An error during chart rendering.
+    #[error("Visualization error: {0}")]
+    Visualization(String),
 }
 
 /// A convenience alias for `std::result::Result<T, WeldrsError>`.
