@@ -7,7 +7,7 @@
 use polars::prelude::*;
 
 use crate::comparison::Comparison;
-use crate::error::Result;
+use crate::error::{Result, WeldrsError};
 use crate::probability;
 
 /// Score record pairs using the trained Fellegi-Sunter model.
@@ -64,6 +64,104 @@ pub fn predict(
     }
 
     Ok(lf)
+}
+
+/// Score record pairs using direct BF table lookup (bypasses Polars lazy overhead).
+///
+/// More efficient than the lazy-expression path for datasets under ~100K pairs
+/// where Polars query-planning overhead for the `when/then/otherwise` BF
+/// expression chains would dominate the actual computation.
+///
+/// Adds `match_weight`, `match_probability`, and individual `bf_{name}` columns.
+/// Optionally filters to pairs above a threshold.
+pub fn predict_direct(
+    comparison_vectors: &DataFrame,
+    comparisons: &[Comparison],
+    lambda: f64,
+    gamma_prefix: &str,
+    bf_prefix: &str,
+    threshold_match_probability: Option<f64>,
+    threshold_match_weight: Option<f64>,
+) -> Result<DataFrame> {
+    let bf_tables = crate::em::build_bf_tables(comparisons);
+    let prior_log2 = probability::prob_to_bayes_factor(lambda).log2();
+    let n_rows = comparison_vectors.height();
+
+    // Extract gamma columns as i8 arrays (casting from wider integer types if needed).
+    let gamma_columns: Vec<Vec<i8>> = comparisons
+        .iter()
+        .map(|comp| {
+            let col_name = comp.gamma_column_name(gamma_prefix);
+            let series = comparison_vectors
+                .column(&col_name)
+                .map_err(|e| WeldrsError::Training(format!("Missing gamma column: {e}")))?;
+            let cast = series
+                .cast(&DataType::Int8)
+                .map_err(|e| WeldrsError::Training(format!("Gamma column cast error: {e}")))?;
+            let gammas = cast
+                .i8()
+                .map_err(|e| WeldrsError::Training(format!("Gamma column type error: {e}")))?;
+            Ok(gammas.into_iter().map(|v| v.unwrap_or(-1i8)).collect())
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Compute individual BF columns, match_weight, and match_probability.
+    let mut bf_vecs: Vec<(String, Vec<f64>)> = Vec::with_capacity(comparisons.len());
+    let mut match_weights = vec![prior_log2; n_rows];
+
+    for (comp_idx, comp) in comparisons.iter().enumerate() {
+        let bf_col_name = comp.bf_column_name(bf_prefix);
+        let table = &bf_tables[comp_idx];
+        let gammas = &gamma_columns[comp_idx];
+        let mut bfs = Vec::with_capacity(n_rows);
+
+        for (row, &gv) in gammas.iter().enumerate() {
+            let idx = (gv + 1) as usize;
+            let bf = if idx < table.len() { table[idx] } else { 1.0 };
+            bfs.push(bf);
+            match_weights[row] += bf.log2();
+        }
+
+        bf_vecs.push((bf_col_name, bfs));
+    }
+
+    // Compute match probabilities from match weights.
+    let match_probs: Vec<f64> = match_weights
+        .iter()
+        .map(|&mw| {
+            let bf = (2.0_f64).powf(mw);
+            bf / (1.0 + bf)
+        })
+        .collect();
+
+    // Build output DataFrame.
+    let mut df = comparison_vectors.clone();
+    for (name, values) in bf_vecs {
+        df.with_column(Column::new(name.into(), &values))
+            .map_err(|e| WeldrsError::Training(format!("Failed to add BF column: {e}")))?;
+    }
+    df.with_column(Column::new("match_weight".into(), &match_weights))
+        .map_err(|e| WeldrsError::Training(format!("Failed to add match_weight: {e}")))?;
+    df.with_column(Column::new("match_probability".into(), &match_probs))
+        .map_err(|e| WeldrsError::Training(format!("Failed to add match_probability: {e}")))?;
+
+    // Apply thresholds using lazy filter for simplicity.
+    if let Some(thresh) = threshold_match_probability {
+        df = df
+            .lazy()
+            .filter(col("match_probability").gt_eq(lit(thresh)))
+            .collect()
+            .map_err(|e| WeldrsError::Training(format!("Threshold filter failed: {e}")))?;
+    }
+    if let Some(thresh) = threshold_match_weight {
+        df = df
+            .lazy()
+            .filter(col("match_weight").gt_eq(lit(thresh)))
+            .collect()
+            .map_err(|e| WeldrsError::Training(format!("Threshold filter failed: {e}")))?;
+    }
+
+    Ok(df)
 }
 
 #[cfg(test)]
@@ -191,6 +289,69 @@ mod tests {
         let weights = result.column("match_weight").unwrap().f64().unwrap();
         for w in weights.into_iter().flatten() {
             assert!(w >= 0.0);
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cloned_ref_to_slice_refs)]
+    fn test_predict_direct_matches_lazy() {
+        let comp = trained_comparison();
+        let cv_eager = cv_df(&[1, 0]).collect().unwrap();
+
+        let lazy_result = predict(
+            cv_eager.clone().lazy(),
+            &[comp.clone()],
+            0.1,
+            "gamma_",
+            "bf_",
+            None,
+            None,
+        )
+        .unwrap()
+        .collect()
+        .unwrap();
+
+        let direct_result =
+            predict_direct(&cv_eager, &[comp], 0.1, "gamma_", "bf_", None, None).unwrap();
+
+        // Both paths should produce the same match probabilities (within f64 tolerance).
+        let lazy_probs: Vec<f64> = lazy_result
+            .column("match_probability")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        let direct_probs: Vec<f64> = direct_result
+            .column("match_probability")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+
+        assert_eq!(lazy_probs.len(), direct_probs.len());
+        for (lp, dp) in lazy_probs.iter().zip(direct_probs.iter()) {
+            assert!(
+                (lp - dp).abs() < 1e-10,
+                "Lazy vs direct mismatch: {lp} vs {dp}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_predict_direct_threshold() {
+        let comp = trained_comparison();
+        let cv_eager = cv_df(&[1, 0, 0]).collect().unwrap();
+
+        let result =
+            predict_direct(&cv_eager, &[comp], 0.0001, "gamma_", "bf_", Some(0.5), None).unwrap();
+
+        let probs = result.column("match_probability").unwrap().f64().unwrap();
+        for p in probs.into_iter().flatten() {
+            assert!(p >= 0.5);
         }
     }
 }

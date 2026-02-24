@@ -27,8 +27,71 @@ pub fn levenshtein_within(a: &str, b: &str, max_dist: u32) -> bool {
     }
 }
 
+/// Stack-allocated bounded Levenshtein for ASCII strings under 128 bytes.
+///
+/// Uses fixed-size `[u32; 129]` arrays on the stack instead of heap-allocated
+/// `Vec<u32>`, matching the pattern used by `jaro_ascii_fast()`.
+fn levenshtein_within_ascii_fast(a: &[u8], b: &[u8], max_dist: u32) -> bool {
+    let m = a.len();
+    let n = b.len();
+    let max_d = max_dist as usize;
+
+    let mut prev = [u32::MAX; 129];
+    let mut curr = [u32::MAX; 129];
+
+    // Initialise row 0.
+    for (j, val) in prev[..=max_d.min(n)].iter_mut().enumerate() {
+        *val = j as u32;
+    }
+
+    for i in 1..=m {
+        let j_lo = i.saturating_sub(max_d);
+        let j_hi = (i + max_d).min(n);
+
+        for val in curr[j_lo..=j_hi].iter_mut() {
+            *val = u32::MAX;
+        }
+
+        if j_lo == 0 {
+            curr[0] = i as u32;
+        }
+
+        for j in j_lo.max(1)..=j_hi {
+            let cost = if a[i - 1] == b[j - 1] { 0u32 } else { 1u32 };
+            let mut val = u32::MAX;
+            if prev[j] != u32::MAX {
+                val = val.min(prev[j] + 1);
+            }
+            if curr[j - 1] != u32::MAX {
+                val = val.min(curr[j - 1] + 1);
+            }
+            if prev[j - 1] != u32::MAX {
+                val = val.min(prev[j - 1] + cost);
+            }
+            curr[j] = val;
+        }
+
+        let band_min = curr[j_lo..=j_hi].iter().copied().min().unwrap_or(u32::MAX);
+        if band_min > max_dist {
+            return false;
+        }
+
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n] <= max_dist
+}
+
 /// Scalar bounded Levenshtein using diagonal-band DP.
 fn levenshtein_within_scalar(a: &str, b: &str, max_dist: u32) -> bool {
+    // Fast-path: both ASCII and under 128 bytes → stack-allocated DP rows.
+    if a.is_ascii() && b.is_ascii() && a.len() <= 128 && b.len() <= 128 {
+        if a.len().abs_diff(b.len()) > max_dist as usize {
+            return false;
+        }
+        return levenshtein_within_ascii_fast(a.as_bytes(), b.as_bytes(), max_dist);
+    }
+
     let a_chars: Vec<char> = a.chars().collect();
     let b_chars: Vec<char> = b.chars().collect();
     let m = a_chars.len();

@@ -5,7 +5,7 @@
 //! data structure with path compression and union by rank.
 
 use polars::prelude::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use crate::error::{Result, WeldrsError};
 
@@ -104,9 +104,11 @@ pub fn cluster_pairwise_predictions(
     let uid_r_ca = uid_r.i64().unwrap();
 
     // Single-pass: collect IDs and union in one iteration using a growable
-    // union-find.
-    let mut id_to_index: HashMap<i64, usize> = HashMap::new();
-    let mut ids: Vec<i64> = Vec::new();
+    // union-find. FxHashMap is 2–5x faster than SipHash for integer keys.
+    let n_estimate = predictions.height();
+    let mut id_to_index: FxHashMap<i64, usize> =
+        FxHashMap::with_capacity_and_hasher(n_estimate, Default::default());
+    let mut ids: Vec<i64> = Vec::with_capacity(n_estimate);
     let mut uf = UnionFind::new(0);
 
     for (l, r, mp) in uid_l_ca
@@ -152,6 +154,7 @@ pub fn cluster_pairwise_predictions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn predictions_df(uid_l: &[i64], uid_r: &[i64], probs: &[f64]) -> DataFrame {
         df!(

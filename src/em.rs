@@ -101,25 +101,24 @@ pub fn expectation_maximisation(
     let mut results = Vec::new();
 
     for iteration in 0..training.max_iterations {
-        // Pre-compute Bayes factor lookup tables (O(1) per gamma lookup).
-        let bf_tables = build_bf_tables(&comparisons);
+        // Pre-compute log Bayes factor lookup tables for numerically stable E-step.
+        let log_bf_tables = build_log_bf_tables(&comparisons);
 
         // Pre-compute null-level lookup tables for the M-step.
         let null_tables = build_null_tables(&comparisons);
 
-        // E-step: compute match probability for each agreement pattern.
-        let match_probs = e_step(&gamma_columns, &bf_tables, &comparisons, current_lambda)?;
+        // E-step: compute match probability for each agreement pattern (log-domain).
+        let match_probs = e_step(&gamma_columns, &log_bf_tables, &comparisons, current_lambda)?;
 
-        // M-step: update parameters.
-        let (new_comparisons, new_lambda, max_change) = m_step(
+        // M-step: update parameters in place (no Comparison cloning).
+        let (new_lambda, max_change) = m_step(
             &gamma_columns,
             &counts,
             &match_probs,
-            &comparisons,
+            &mut comparisons,
             &null_tables,
         )?;
 
-        comparisons = new_comparisons;
         current_lambda = new_lambda;
 
         if training.store_history || max_change < training.em_convergence {
@@ -156,7 +155,8 @@ pub fn expectation_maximisation(
 /// Build a lookup table for each comparison: `bf_tables[comp_idx][gamma_val + 1] = bayes_factor`.
 ///
 /// This converts the O(L) linear scan in `level_bayes_factor` to O(1).
-fn build_bf_tables(comparisons: &[Comparison]) -> Vec<Vec<f64>> {
+/// Also used by `predict_direct()` for direct BF computation.
+pub fn build_bf_tables(comparisons: &[Comparison]) -> Vec<Vec<f64>> {
     comparisons
         .iter()
         .map(|comp| {
@@ -176,6 +176,38 @@ fn build_bf_tables(comparisons: &[Comparison]) -> Vec<Vec<f64>> {
                         1.0
                     } else {
                         level.bayes_factor().unwrap_or(1.0)
+                    };
+                }
+            }
+            table
+        })
+        .collect()
+}
+
+/// Build a log-domain Bayes factor lookup table for the E-step.
+///
+/// `log_bf_tables[comp_idx][gamma_val + 1] = ln(bayes_factor)`.
+/// Using log-domain prevents numerical overflow/underflow when many
+/// comparisons are multiplied together.
+fn build_log_bf_tables(comparisons: &[Comparison]) -> Vec<Vec<f64>> {
+    comparisons
+        .iter()
+        .map(|comp| {
+            let max_cv = comp
+                .comparison_levels
+                .iter()
+                .map(|l| l.comparison_vector_value)
+                .max()
+                .unwrap_or(0);
+            let size = (max_cv + 2) as usize;
+            let mut table = vec![0.0f64; size]; // ln(1.0) = 0.0
+            for level in &comp.comparison_levels {
+                let idx = (level.comparison_vector_value + 1) as usize;
+                if idx < size {
+                    table[idx] = if level.is_null_level {
+                        0.0 // ln(1.0) — neutral
+                    } else {
+                        level.bayes_factor().unwrap_or(1.0).ln()
                     };
                 }
             }
@@ -211,54 +243,79 @@ fn build_null_tables(comparisons: &[Comparison]) -> Vec<Vec<bool>> {
 
 /// E-step: compute the match probability for each agreement pattern.
 ///
+/// Uses log-domain computation (`ln(BF)` sums instead of BF products) for
+/// numerical stability, preventing silent overflow/underflow with many
+/// comparisons. Converts to probability via a numerically stable sigmoid.
+///
 /// Returns a Vec<f64> aligned with the rows of `pattern_counts`.
 fn e_step(
     gamma_columns: &[Vec<i8>],
-    bf_tables: &[Vec<f64>],
+    log_bf_tables: &[Vec<f64>],
     comparisons: &[Comparison],
     lambda: f64,
 ) -> Result<Vec<f64>> {
     let n_rows = gamma_columns.first().map_or(0, |c| c.len());
-    let prior_odds = probability::prob_to_bayes_factor(lambda);
+    let log_prior_odds = probability::prob_to_bayes_factor(lambda).ln();
+    let n_comps = comparisons.len();
 
     let match_probs: Vec<f64> = (0..n_rows)
         .into_par_iter()
         .map(|row| {
-            let mut bf_product = prior_odds;
-            for (comp_idx, _comp) in comparisons.iter().enumerate() {
+            let mut log_odds = log_prior_odds;
+            for comp_idx in 0..n_comps {
                 let gamma_val = gamma_columns[comp_idx][row];
                 let idx = (gamma_val + 1) as usize;
-                let table = &bf_tables[comp_idx];
-                let bf = if idx < table.len() { table[idx] } else { 1.0 };
-                bf_product *= bf;
+                let table = &log_bf_tables[comp_idx];
+                let log_bf = if idx < table.len() { table[idx] } else { 0.0 };
+                log_odds += log_bf;
             }
-            probability::bayes_factor_to_prob(bf_product)
+            // Numerically stable sigmoid: avoids exp(large) overflow.
+            if log_odds >= 0.0 {
+                1.0 / (1.0 + (-log_odds).exp())
+            } else {
+                let e = log_odds.exp();
+                e / (1.0 + e)
+            }
         })
         .collect();
 
     Ok(match_probs)
 }
 
+/// Lightweight result from parallel M-step computation for a single comparison.
+/// Avoids cloning the full `Comparison` struct during parallel iteration.
+struct MStepCompUpdate {
+    /// `(new_m, new_u)` for each comparison level. `None` if unchanged
+    /// (null level or fixed parameter).
+    level_updates: Vec<(Option<f64>, Option<f64>)>,
+    max_change: f64,
+}
+
+/// Minimum probability for m/u parameters to prevent Bayes factor singularities
+/// (BF=0 or BF=infinity) that cause NaN in log-domain computations.
+/// Matches Splink's `LEVEL_PROB_CLIP` approach.
+const PROB_CLAMP_MIN: f64 = 1e-6;
+const PROB_CLAMP_MAX: f64 = 1.0 - 1e-6;
+
 /// M-step: update m, u, and lambda parameters from the E-step match probabilities.
 ///
 /// Uses a single-pass accumulation per comparison with per-level accumulators
-/// indexed by gamma value, replacing the previous (1 + L) passes.
+/// indexed by gamma value. Updates comparisons in place instead of cloning,
+/// eliminating String allocation overhead from the parallel phase.
 ///
-/// Returns (updated comparisons, updated lambda, max parameter change).
+/// Returns (updated lambda, max parameter change).
 fn m_step(
     gamma_columns: &[Vec<i8>],
     counts: &[f64],
     match_probs: &[f64],
-    comparisons: &[Comparison],
+    comparisons: &mut [Comparison],
     null_tables: &[Vec<bool>],
-) -> Result<(Vec<Comparison>, f64, f64)> {
-    // Parallelize the outer loop over comparisons — each comparison's m/u
-    // update is independent.
-    let results: Vec<(Comparison, f64)> = comparisons
+) -> Result<(f64, f64)> {
+    // Parallel: compute updates without cloning comparisons.
+    let updates: Vec<MStepCompUpdate> = comparisons
         .par_iter()
         .enumerate()
         .map(|(comp_idx, comp)| {
-            let mut comp = comp.clone();
             let gammas = &gamma_columns[comp_idx];
             let null_table = &null_tables[comp_idx];
             let mut local_max_change = 0.0_f64;
@@ -294,8 +351,10 @@ fn m_step(
                 }
             }
 
-            for level in &mut comp.comparison_levels {
+            let mut level_updates = Vec::with_capacity(comp.comparison_levels.len());
+            for level in &comp.comparison_levels {
                 if level.is_null_level {
+                    level_updates.push((None, None));
                     continue;
                 }
 
@@ -311,37 +370,58 @@ fn m_step(
                     0.0
                 };
 
-                if !level.fix_m_probability {
-                    let new_m = if total_match_weight > 0.0 {
-                        lm / total_match_weight
+                let new_m = if !level.fix_m_probability {
+                    let m = if total_match_weight > 0.0 {
+                        (lm / total_match_weight).clamp(PROB_CLAMP_MIN, PROB_CLAMP_MAX)
                     } else {
                         level.m_probability.unwrap_or(0.0)
                     };
                     if let Some(old_m) = level.m_probability {
-                        local_max_change = local_max_change.max((new_m - old_m).abs());
+                        local_max_change = local_max_change.max((m - old_m).abs());
                     }
-                    level.m_probability = Some(new_m);
-                }
+                    Some(m)
+                } else {
+                    None
+                };
 
-                if !level.fix_u_probability {
-                    let new_u = if total_non_match_weight > 0.0 {
-                        lnm / total_non_match_weight
+                let new_u = if !level.fix_u_probability {
+                    let u = if total_non_match_weight > 0.0 {
+                        (lnm / total_non_match_weight).clamp(PROB_CLAMP_MIN, PROB_CLAMP_MAX)
                     } else {
                         level.u_probability.unwrap_or(0.0)
                     };
                     if let Some(old_u) = level.u_probability {
-                        local_max_change = local_max_change.max((new_u - old_u).abs());
+                        local_max_change = local_max_change.max((u - old_u).abs());
                     }
-                    level.u_probability = Some(new_u);
-                }
+                    Some(u)
+                } else {
+                    None
+                };
+
+                level_updates.push((new_m, new_u));
             }
 
-            (comp, local_max_change)
+            MStepCompUpdate {
+                level_updates,
+                max_change: local_max_change,
+            }
         })
         .collect();
 
-    let max_change = results.iter().map(|(_, c)| *c).fold(0.0_f64, f64::max);
-    let new_comparisons: Vec<Comparison> = results.into_iter().map(|(c, _)| c).collect();
+    // Sequential: apply updates to comparisons in place.
+    let mut max_change = 0.0_f64;
+    for (comp_idx, update) in updates.into_iter().enumerate() {
+        max_change = max_change.max(update.max_change);
+        for (level_idx, (new_m, new_u)) in update.level_updates.into_iter().enumerate() {
+            let level = &mut comparisons[comp_idx].comparison_levels[level_idx];
+            if let Some(m) = new_m {
+                level.m_probability = Some(m);
+            }
+            if let Some(u) = new_u {
+                level.u_probability = Some(u);
+            }
+        }
+    }
 
     // Update lambda.
     let total_count: f64 = counts.iter().sum();
@@ -356,7 +436,7 @@ fn m_step(
         lambda_from_comparisons(comparisons)
     };
 
-    Ok((new_comparisons, new_lambda, max_change))
+    Ok((new_lambda, max_change))
 }
 
 fn lambda_from_comparisons(_comparisons: &[Comparison]) -> f64 {

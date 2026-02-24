@@ -8,13 +8,24 @@
 use polars::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::error::{Result, WeldrsError};
 
-/// Apply a string predicate in parallel across paired struct columns.
+/// Apply a string predicate using unique-value deduplication.
 ///
-/// Uses index-based parallel iteration with `StringChunked::get(i)` to avoid
-/// collecting both columns into intermediate `Vec<Option<&str>>`.
+/// Instead of computing the predicate for every row, this function:
+/// 1. Identifies the set of unique (left, right) value pairs
+/// 2. Computes the predicate in parallel over only the unique pairs
+/// 3. Maps results back to all rows via lookup
+///
+/// This is highly effective when many rows share the same value pairs
+/// (e.g., after blocking on surname with ~50 unique names per side,
+/// 500K pairs may yield only ~2,500 unique combinations).
+///
+/// Includes a heuristic fallback: if unique pairs exceed 50% of total
+/// non-null rows, falls back to direct per-row computation to avoid
+/// HashMap overhead when values are highly unique.
 fn par_pairwise_string_predicate(
     s: &Column,
     col_l_key: &PlSmallStr,
@@ -25,14 +36,64 @@ fn par_pairwise_string_predicate(
     let left_str = ca.field_by_name(col_l_key)?.str()?.clone();
     let right_str = ca.field_by_name(col_r_key)?.str()?.clone();
     let n = left_str.len();
-    let bools: Vec<Option<bool>> = (0..n)
-        .into_par_iter()
-        .map(|i| match (left_str.get(i), right_str.get(i)) {
-            (Some(l), Some(r)) => Some(predicate(l, r)),
-            _ => Some(false),
+
+    // Phase 1: Identify unique value pairs and map each row to its pair index.
+    let mut pair_to_idx: HashMap<(&str, &str), u32> = HashMap::new();
+    let mut unique_pairs: Vec<(&str, &str)> = Vec::new();
+    let mut row_pair_idx: Vec<u32> = Vec::with_capacity(n);
+    let mut non_null_count: usize = 0;
+
+    for i in 0..n {
+        match (left_str.get(i), right_str.get(i)) {
+            (Some(l), Some(r)) => {
+                non_null_count += 1;
+                let next_idx = unique_pairs.len() as u32;
+                let idx = *pair_to_idx.entry((l, r)).or_insert_with(|| {
+                    unique_pairs.push((l, r));
+                    next_idx
+                });
+                row_pair_idx.push(idx);
+            }
+            _ => {
+                // Sentinel: u32::MAX marks null rows
+                row_pair_idx.push(u32::MAX);
+            }
+        }
+    }
+
+    // Heuristic: if unique pairs > 50% of non-null rows, fall back to direct
+    // per-row computation to avoid HashMap overhead for highly unique data.
+    if non_null_count > 0 && unique_pairs.len() * 2 > non_null_count {
+        let bools: Vec<bool> = (0..n)
+            .into_par_iter()
+            .map(|i| match (left_str.get(i), right_str.get(i)) {
+                (Some(l), Some(r)) => predicate(l, r),
+                _ => false,
+            })
+            .collect();
+        let out = BooleanChunked::from_iter(bools.into_iter().map(Some));
+        return Ok(out.into_column());
+    }
+
+    // Phase 2: Compute predicate for each unique pair in parallel.
+    let pair_results: Vec<bool> = unique_pairs
+        .par_iter()
+        .map(|(l, r)| predicate(l, r))
+        .collect();
+
+    // Phase 3: Map results back to all rows.
+    let bools: Vec<bool> = row_pair_idx
+        .iter()
+        .map(|&idx| {
+            if idx == u32::MAX {
+                false
+            } else {
+                pair_results[idx as usize]
+            }
         })
         .collect();
-    let out = BooleanChunked::from_iter(bools);
+
+    let out = BooleanChunked::from_iter(bools.into_iter().map(Some));
     Ok(out.into_column())
 }
 
