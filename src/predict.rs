@@ -293,6 +293,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cloned_ref_to_slice_refs)]
     fn test_predict_direct_matches_lazy() {
         let comp = trained_comparison();
         let cv_eager = cv_df(&[1, 0]).collect().unwrap();

@@ -1,4 +1,4 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use polars::prelude::*;
 use rand::prelude::*;
 use rand::rngs::StdRng;
@@ -171,7 +171,7 @@ fn bench_fuzzy_comparison_realistic(c: &mut Criterion) {
                 .unwrap();
             linker.estimate_u_using_random_sampling(&lf, 500).unwrap();
             // Just compute comparison vectors (the fuzzy comparison hot path).
-            let _cv = linker
+            linker
                 .estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))
                 .unwrap();
         })
