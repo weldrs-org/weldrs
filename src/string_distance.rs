@@ -54,7 +54,7 @@ fn levenshtein_within_scalar(a: &str, b: &str, max_dist: u32) -> bool {
     }
 
     for i in 1..=m {
-        let j_lo = if i > max_d { i - max_d } else { 0 };
+        let j_lo = i.saturating_sub(max_d);
         let j_hi = (i + max_d).min(n);
 
         // Reset curr row to MAX.
