@@ -89,6 +89,8 @@ pub mod predict;
 pub mod probability;
 pub mod settings;
 pub mod string_distance;
+#[cfg(feature = "visualize")]
+pub mod visualize;
 
 /// Convenience re-exports for common usage.
 pub mod prelude {
@@ -102,4 +104,6 @@ pub mod prelude {
     };
     pub use crate::linker::Linker;
     pub use crate::settings::{LinkType, Settings, TrainingSettings};
+    #[cfg(feature = "visualize")]
+    pub use crate::visualize::ChartOptions;
 }
