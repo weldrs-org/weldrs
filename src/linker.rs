@@ -95,7 +95,7 @@ impl Linker {
         // Run EM. Columns that overlap with the blocking rule are fixed.
         let columns_to_fix = blocking_rule.columns.clone();
 
-        let results = em::expectation_maximisation(
+        let results = em::expectation_maximization(
             &cv,
             self.settings.comparisons.clone(),
             self.settings.probability_two_random_records_match,

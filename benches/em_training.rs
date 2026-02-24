@@ -1,7 +1,7 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use polars::prelude::*;
 use weldrs::comparison::ComparisonBuilder;
-use weldrs::em::expectation_maximisation;
+use weldrs::em::expectation_maximization;
 use weldrs::settings::TrainingSettings;
 
 fn make_synthetic_patterns(
@@ -46,7 +46,7 @@ fn bench_em_500_patterns_3_comparisons(c: &mut Criterion) {
     c.bench_function("em_500pat_3comp", |b| {
         b.iter(|| {
             black_box(
-                expectation_maximisation(&cv, comparisons.clone(), 0.05, &training, "gamma_", &[])
+                expectation_maximization(&cv, comparisons.clone(), 0.05, &training, "gamma_", &[])
                     .unwrap(),
             )
         })
@@ -64,7 +64,7 @@ fn bench_em_1000_patterns_5_comparisons(c: &mut Criterion) {
     c.bench_function("em_1000pat_5comp", |b| {
         b.iter(|| {
             black_box(
-                expectation_maximisation(&cv, comparisons.clone(), 0.05, &training, "gamma_", &[])
+                expectation_maximization(&cv, comparisons.clone(), 0.05, &training, "gamma_", &[])
                     .unwrap(),
             )
         })
