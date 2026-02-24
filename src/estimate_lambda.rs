@@ -1,0 +1,210 @@
+//! Lambda estimation from deterministic rules.
+//!
+//! Lambda is the prior probability that two randomly chosen records are a
+//! match. It is estimated by applying high-confidence blocking rules to
+//! identify "certain" matches and dividing by the total number of possible
+//! pairs, adjusted by an assumed recall.
+
+use polars::prelude::*;
+
+use crate::blocking::BlockingRule;
+use crate::error::{Result, WeldrsError};
+use crate::settings::LinkType;
+
+/// Estimate the probability that two random records match (lambda) using
+/// deterministic rules.
+///
+/// Applies high-confidence blocking rules (e.g., exact match on multiple
+/// columns) to identify "certain" matches, then divides by the total number
+/// of possible pairs, adjusted by the estimated recall.
+pub fn estimate_probability_two_random_records_match(
+    df: &LazyFrame,
+    deterministic_rules: &[BlockingRule],
+    link_type: &LinkType,
+    unique_id_col: &str,
+    recall: f64,
+) -> Result<f64> {
+    if deterministic_rules.is_empty() {
+        return Err(WeldrsError::Config(
+            "At least one deterministic rule is required to estimate lambda".into(),
+        ));
+    }
+
+    let collected = df
+        .clone()
+        .collect()
+        .map_err(|e| WeldrsError::Training(format!("Failed to collect: {e}")))?;
+    let n = collected.height() as f64;
+
+    if n < 2.0 {
+        return Err(WeldrsError::Training(
+            "Need at least 2 records to estimate lambda".into(),
+        ));
+    }
+
+    // Total possible pairs.
+    let total_pairs = match link_type {
+        LinkType::DedupeOnly | LinkType::LinkAndDedupe => n * (n - 1.0) / 2.0,
+        LinkType::LinkOnly => {
+            // For link-only, we'd need two datasets. For now, assume
+            // the user has concatenated them and we use n*(n-1)/2.
+            n * (n - 1.0) / 2.0
+        }
+    };
+
+    // Count matched pairs via deterministic rules.
+    let uid_l = format!("{unique_id_col}_l");
+    let uid_r = format!("{unique_id_col}_r");
+
+    let left = collected.clone().lazy().select([all().name().suffix("_l")]);
+    let right = collected.lazy().select([all().name().suffix("_r")]);
+
+    let mut all_pairs: Vec<LazyFrame> = Vec::new();
+
+    for rule in deterministic_rules {
+        let left_on: Vec<Expr> = rule
+            .columns
+            .iter()
+            .map(|c| col(format!("{c}_l").as_str()))
+            .collect();
+        let right_on: Vec<Expr> = rule
+            .columns
+            .iter()
+            .map(|c| col(format!("{c}_r").as_str()))
+            .collect();
+
+        let joined = left.clone().join(
+            right.clone(),
+            left_on,
+            right_on,
+            JoinArgs::new(JoinType::Inner),
+        );
+
+        let filtered = match link_type {
+            LinkType::DedupeOnly | LinkType::LinkAndDedupe => {
+                joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str())))
+            }
+            LinkType::LinkOnly => joined.filter(col(uid_l.as_str()).neq(col(uid_r.as_str()))),
+        };
+
+        all_pairs.push(filtered.select([col(uid_l.as_str()), col(uid_r.as_str())]));
+    }
+
+    let unioned = if all_pairs.len() == 1 {
+        all_pairs.into_iter().next().unwrap()
+    } else {
+        concat(&all_pairs, UnionArgs::default())
+            .map_err(|e| WeldrsError::Training(format!("Concat failed: {e}")))?
+    };
+
+    let unique_pairs = unioned.unique(Some(vec![uid_l, uid_r]), UniqueKeepStrategy::First);
+
+    let match_count = unique_pairs
+        .collect()
+        .map_err(|e| WeldrsError::Training(format!("Failed to count matches: {e}")))?
+        .height() as f64;
+
+    let lambda = match_count / (total_pairs * recall);
+
+    // Clamp to a reasonable range.
+    Ok(lambda.clamp(1e-8, 0.99))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_df() -> LazyFrame {
+        use polars::prelude::*;
+        df!(
+            "unique_id" => [1i64, 2, 3, 4, 5, 6],
+            "first_name" => ["John", "Jane", "Bob", "John", "Jane", "Alice"],
+            "surname" => ["Smith", "Doe", "Williams", "Smith", "Doe", "Brown"],
+        )
+        .unwrap()
+        .lazy()
+    }
+
+    #[test]
+    fn test_lambda_basic_estimate() {
+        let df = test_df();
+        // Block on first_name + surname: finds exact duplicate pairs (1,4) and (2,5)
+        let rules = vec![BlockingRule::on(&["first_name", "surname"])];
+        let lambda = estimate_probability_two_random_records_match(
+            &df,
+            &rules,
+            &LinkType::DedupeOnly,
+            "unique_id",
+            1.0, // recall = 1.0
+        )
+        .unwrap();
+
+        // 6 records → C(6,2) = 15 total pairs. 2 matches found. lambda = 2/15 ≈ 0.133
+        assert!(lambda > 0.0);
+        assert!(lambda < 1.0);
+        let expected = 2.0 / 15.0;
+        assert!((lambda - expected).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_lambda_clamped_low() {
+        use polars::prelude::*;
+        // All unique records → 0 matches → clamped to 1e-8
+        let df = df!(
+            "unique_id" => [1i64, 2, 3],
+            "name" => ["Alice", "Bob", "Carol"],
+        )
+        .unwrap()
+        .lazy();
+
+        let rules = vec![BlockingRule::on(&["name"])];
+        let lambda = estimate_probability_two_random_records_match(
+            &df,
+            &rules,
+            &LinkType::DedupeOnly,
+            "unique_id",
+            1.0,
+        )
+        .unwrap();
+
+        assert!((lambda - 1e-8).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_lambda_errors_on_empty_rules() {
+        let df = test_df();
+        let result = estimate_probability_two_random_records_match(
+            &df,
+            &[],
+            &LinkType::DedupeOnly,
+            "unique_id",
+            1.0,
+        );
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            WeldrsError::Config(_) => {}
+            other => panic!("Expected Config error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_lambda_errors_on_tiny_df() {
+        use polars::prelude::*;
+        let df = df!("unique_id" => [1i64], "name" => ["Alice"])
+            .unwrap()
+            .lazy();
+        let rules = vec![BlockingRule::on(&["name"])];
+        let result = estimate_probability_two_random_records_match(
+            &df,
+            &rules,
+            &LinkType::DedupeOnly,
+            "unique_id",
+            1.0,
+        );
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            WeldrsError::Training(_) => {}
+            other => panic!("Expected Training error, got: {other:?}"),
+        }
+    }
+}
