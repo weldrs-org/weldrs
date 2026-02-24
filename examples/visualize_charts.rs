@@ -70,29 +70,17 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // ── 1. Waterfall chart ───────────────────────────────────────────
     let waterfall = linker.explain_pair(&predictions, 0)?;
-    visualize::waterfall_chart_to_file(
-        &waterfall,
-        &out_dir.join("waterfall.svg"),
-        &opts,
-    )?;
+    visualize::waterfall_chart_to_file(&waterfall, &out_dir.join("waterfall.svg"), &opts)?;
     println!("Wrote examples/charts/waterfall.svg");
 
     // ── 2. Match weights chart ───────────────────────────────────────
     let summary = linker.model_summary();
-    visualize::match_weights_chart_to_file(
-        &summary,
-        &out_dir.join("match_weights.svg"),
-        &opts,
-    )?;
+    visualize::match_weights_chart_to_file(&summary, &out_dir.join("match_weights.svg"), &opts)?;
     println!("Wrote examples/charts/match_weights.svg");
 
     // ── 3. Weight distribution histogram ─────────────────────────────
-    let mw_col = predictions
-        .column("match_weight")?
-        .f64()?;
-    let weights: Vec<f64> = mw_col
-        .into_no_null_iter()
-        .collect();
+    let mw_col = predictions.column("match_weight")?.f64()?;
+    let weights: Vec<f64> = mw_col.into_no_null_iter().collect();
     visualize::weight_distribution_chart_to_file(
         &weights,
         None,

@@ -40,10 +40,10 @@ impl Default for ChartOptions {
         Self {
             width: 900,
             height: 500,
-            positive_color: (76, 175, 80),   // green
-            negative_color: (244, 67, 54),    // red
-            prior_color: (33, 150, 243),      // blue
-            neutral_color: (158, 158, 158),   // grey
+            positive_color: (76, 175, 80),  // green
+            negative_color: (244, 67, 54),  // red
+            prior_color: (33, 150, 243),    // blue
+            neutral_color: (158, 158, 158), // grey
             title_font_size: 20,
             label_font_size: 14,
         }
@@ -71,10 +71,7 @@ fn write_svg_to_file(svg: &str, path: &Path) -> Result<()> {
 /// Each step in the waterfall becomes a floating bar colored green
 /// (positive evidence) or red (negative evidence). The prior bar is
 /// shown in blue. A connector line traces the cumulative match weight.
-pub fn waterfall_chart_svg(
-    waterfall: &WaterfallChart,
-    options: &ChartOptions,
-) -> Result<String> {
+pub fn waterfall_chart_svg(waterfall: &WaterfallChart, options: &ChartOptions) -> Result<String> {
     let steps = &waterfall.steps;
     if steps.is_empty() {
         return Err(vis_err("Waterfall has no steps"));
@@ -110,18 +107,19 @@ pub fn waterfall_chart_svg(
         .cloned()
         .fold(f64::NEG_INFINITY, f64::max);
     let y_range = y_max - y_min;
-    let y_pad = if y_range.abs() < 1e-10 { 1.0 } else { y_range * 0.15 };
+    let y_pad = if y_range.abs() < 1e-10 {
+        1.0
+    } else {
+        y_range * 0.15
+    };
 
     // Labels for x-axis.
-    let labels: Vec<String> = steps
-        .iter()
-        .map(|s| s.column_name.clone())
-        .collect();
+    let labels: Vec<String> = steps.iter().map(|s| s.column_name.clone()).collect();
 
     let mut buf = String::new();
     {
-        let root = SVGBackend::with_string(&mut buf, (options.width, options.height))
-            .into_drawing_area();
+        let root =
+            SVGBackend::with_string(&mut buf, (options.width, options.height)).into_drawing_area();
         root.fill(&WHITE).map_err(|e| vis_err(e.to_string()))?;
 
         let title = format!(
@@ -226,10 +224,7 @@ pub fn waterfall_chart_to_file(
 ///
 /// Shows one bar per non-null comparison level, grouped by comparison
 /// name and colored green/red by sign. Bars are anchored at y=0.
-pub fn match_weights_chart_svg(
-    summary: &ModelSummary,
-    options: &ChartOptions,
-) -> Result<String> {
+pub fn match_weights_chart_svg(summary: &ModelSummary, options: &ChartOptions) -> Result<String> {
     // Collect bars: (label, weight).
     let mut bar_labels: Vec<String> = Vec::new();
     let mut bar_weights: Vec<f64> = Vec::new();
@@ -256,21 +251,19 @@ pub fn match_weights_chart_svg(
         return Err(vis_err("No levels to display"));
     }
 
-    let y_min = bar_weights
-        .iter()
-        .cloned()
-        .fold(0.0_f64, f64::min);
-    let y_max = bar_weights
-        .iter()
-        .cloned()
-        .fold(0.0_f64, f64::max);
+    let y_min = bar_weights.iter().cloned().fold(0.0_f64, f64::min);
+    let y_max = bar_weights.iter().cloned().fold(0.0_f64, f64::max);
     let y_range = y_max - y_min;
-    let y_pad = if y_range.abs() < 1e-10 { 1.0 } else { y_range * 0.15 };
+    let y_pad = if y_range.abs() < 1e-10 {
+        1.0
+    } else {
+        y_range * 0.15
+    };
 
     let mut buf = String::new();
     {
-        let root = SVGBackend::with_string(&mut buf, (options.width, options.height))
-            .into_drawing_area();
+        let root =
+            SVGBackend::with_string(&mut buf, (options.width, options.height)).into_drawing_area();
         root.fill(&WHITE).map_err(|e| vis_err(e.to_string()))?;
 
         let mut chart = ChartBuilder::on(&root)
@@ -417,8 +410,8 @@ pub fn weight_distribution_chart_svg(
 
     let mut buf = String::new();
     {
-        let root = SVGBackend::with_string(&mut buf, (options.width, options.height))
-            .into_drawing_area();
+        let root =
+            SVGBackend::with_string(&mut buf, (options.width, options.height)).into_drawing_area();
         root.fill(&WHITE).map_err(|e| vis_err(e.to_string()))?;
 
         let x_pad = bin_width * 0.5;
@@ -631,8 +624,7 @@ mod tests {
     #[test]
     fn test_histogram_produces_svg() {
         let weights = vec![-5.0, -3.0, -1.0, 0.0, 1.0, 2.0, 5.0, 8.0, 10.0];
-        let svg =
-            weight_distribution_chart_svg(&weights, None, &ChartOptions::default()).unwrap();
+        let svg = weight_distribution_chart_svg(&weights, None, &ChartOptions::default()).unwrap();
         assert!(svg.contains("<svg"));
         assert!(svg.contains("</svg>"));
         assert!(svg.contains("distribution"));
@@ -649,17 +641,13 @@ mod tests {
     #[test]
     fn test_histogram_empty_errors() {
         let weights: Vec<f64> = vec![];
-        assert!(
-            weight_distribution_chart_svg(&weights, None, &ChartOptions::default()).is_err()
-        );
+        assert!(weight_distribution_chart_svg(&weights, None, &ChartOptions::default()).is_err());
     }
 
     #[test]
     fn test_histogram_all_nonfinite_errors() {
         let weights = vec![f64::INFINITY, f64::NEG_INFINITY, f64::NAN];
-        assert!(
-            weight_distribution_chart_svg(&weights, None, &ChartOptions::default()).is_err()
-        );
+        assert!(weight_distribution_chart_svg(&weights, None, &ChartOptions::default()).is_err());
     }
 
     #[test]
@@ -667,8 +655,7 @@ mod tests {
         let weights = vec![0.0, 1.0, 2.0, 3.0];
         let dir = std::env::temp_dir();
         let path = dir.join("weldrs_test_histogram.svg");
-        weight_distribution_chart_to_file(&weights, None, &path, &ChartOptions::default())
-            .unwrap();
+        weight_distribution_chart_to_file(&weights, None, &path, &ChartOptions::default()).unwrap();
         let contents = std::fs::read_to_string(&path).unwrap();
         assert!(contents.contains("<svg"));
         std::fs::remove_file(&path).ok();
@@ -691,8 +678,7 @@ mod tests {
             ..Default::default()
         };
         let weights = vec![0.0, 1.0, 2.0];
-        let svg =
-            weight_distribution_chart_svg(&weights, None, &opts).unwrap();
+        let svg = weight_distribution_chart_svg(&weights, None, &opts).unwrap();
         assert!(svg.contains("<svg"));
     }
 
