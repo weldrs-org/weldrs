@@ -132,9 +132,83 @@ fn bench_pipeline_10k(c: &mut Criterion) {
     });
 }
 
+fn bench_fuzzy_comparison_realistic(c: &mut Criterion) {
+    let df = generate_dataset(10_000);
+    let lf = df.lazy();
+
+    // Set up a linker with JaroWinkler fuzzy comparison, blocked on surname.
+    // This creates the realistic scenario where many blocked pairs share the
+    // same name values, measuring the impact of unique-value deduplication.
+    c.bench_function("fuzzy_comparison_realistic_10k", |b| {
+        b.iter(|| {
+            let settings = Settings::builder(LinkType::DedupeOnly)
+                .comparison(
+                    ComparisonBuilder::new("first_name")
+                        .null_level()
+                        .exact_match_level()
+                        .jaro_winkler_level(0.88)
+                        .else_level()
+                        .build(),
+                )
+                .comparison(
+                    ComparisonBuilder::new("surname")
+                        .null_level()
+                        .exact_match_level()
+                        .else_level()
+                        .build(),
+                )
+                .blocking_rule(BlockingRule::on(&["surname"]))
+                .build()
+                .unwrap();
+
+            let mut linker = Linker::new(settings).unwrap();
+            linker
+                .estimate_probability_two_random_records_match(
+                    &lf,
+                    &[BlockingRule::on(&["first_name", "surname"])],
+                    1.0,
+                )
+                .unwrap();
+            linker.estimate_u_using_random_sampling(&lf, 500).unwrap();
+            // Just compute comparison vectors (the fuzzy comparison hot path).
+            let _cv = linker
+                .estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))
+                .unwrap();
+        })
+    });
+}
+
+fn bench_clustering_large(c: &mut Criterion) {
+    // Generate 100K prediction pairs with random match probabilities.
+    let mut rng = StdRng::seed_from_u64(42);
+    let n = 100_000;
+    let uid_l: Vec<i64> = (0..n).map(|_| rng.gen_range(0..50_000)).collect();
+    let uid_r: Vec<i64> = (0..n).map(|_| rng.gen_range(50_000..100_000)).collect();
+    let probs: Vec<f64> = (0..n).map(|_| rng.gen_range(0.0..1.0)).collect();
+
+    let preds = df!(
+        "unique_id_l" => &uid_l,
+        "unique_id_r" => &uid_r,
+        "match_probability" => &probs,
+    )
+    .unwrap();
+
+    c.bench_function("clustering_100k", |b| {
+        b.iter(|| {
+            let _clusters = weldrs::clustering::cluster_pairwise_predictions(
+                &preds,
+                0.5,
+                "unique_id_l",
+                "unique_id_r",
+            )
+            .unwrap();
+        })
+    });
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = bench_pipeline_10k
+    targets = bench_pipeline_10k, bench_fuzzy_comparison_realistic, bench_clustering_large
 }
 criterion_main!(benches);
