@@ -49,8 +49,8 @@ fn levenshtein_within_scalar(a: &str, b: &str, max_dist: u32) -> bool {
     let mut curr = vec![u32::MAX; width];
 
     // Initialise row 0.
-    for j in 0..=max_d.min(n) {
-        prev[j] = j as u32;
+    for (j, val) in prev[..=max_d.min(n)].iter_mut().enumerate() {
+        *val = j as u32;
     }
 
     for i in 1..=m {
