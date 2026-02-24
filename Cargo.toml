@@ -14,6 +14,9 @@ categories = ["algorithms", "science"]
 name = "weldrs"
 path = "src/lib.rs"
 
+[features]
+simd = ["triple_accel"]
+
 [dependencies]
 polars = { version = "0.46", features = [
     "lazy",
@@ -21,10 +24,12 @@ polars = { version = "0.46", features = [
     "round_series",
     "log",
     "dtype-u8",
+    "dtype-i8",
     "dtype-i16",
     "dtype-struct",
     "random",
     "concat_str",
+    "semi_anti_join",
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -32,6 +37,20 @@ thiserror = "2"
 strsim = "0.11"
 rayon = "1.11"
 rand = "0.8"
+triple_accel = { version = "0.4", optional = true }
 
 [dev-dependencies]
 polars = { version = "0.46", features = ["csv"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "string_distance"
+harness = false
+
+[[bench]]
+name = "em_training"
+harness = false
+
+[[bench]]
+name = "pipeline"
+harness = false

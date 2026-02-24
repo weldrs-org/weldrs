@@ -80,7 +80,10 @@ impl Comparison {
             }
         }
 
-        Ok(expr.unwrap_or(lit(-1i32)).alias(col_name.as_str()))
+        Ok(expr
+            .unwrap_or(lit(-1i32))
+            .cast(DataType::Int8)
+            .alias(col_name.as_str()))
     }
 
     /// Build an expression that maps gamma values to Bayes factors.
@@ -353,15 +356,15 @@ mod tests {
         );
         let gamma_expr = comp.gamma_expr("gamma_").unwrap();
         let result = df.lazy().with_column(gamma_expr).collect().unwrap();
-        let gammas: Vec<Option<i32>> = result
+        let gammas: Vec<Option<i8>> = result
             .column("gamma_name")
             .unwrap()
-            .i32()
+            .i8()
             .unwrap()
             .into_iter()
             .collect();
         // Alice==Alice → exact(1), Bob!=Carol → else(0), Charlie==Charlie → exact(1)
-        assert_eq!(gammas, vec![Some(1), Some(0), Some(1)]);
+        assert_eq!(gammas, vec![Some(1i8), Some(0i8), Some(1i8)]);
     }
 
     #[test]
@@ -376,17 +379,17 @@ mod tests {
         );
         let gamma_expr = comp.gamma_expr("gamma_").unwrap();
         let result = df.lazy().with_column(gamma_expr).collect().unwrap();
-        let gammas: Vec<Option<i32>> = result
+        let gammas: Vec<Option<i8>> = result
             .column("gamma_name")
             .unwrap()
-            .i32()
+            .i8()
             .unwrap()
             .into_iter()
             .collect();
         // "martha"/"marhta" → JW ~0.96 → jw level (cv=1)
         // "abc"/"xyz" → low JW → else (cv=0)
         // "exact"/"exact" → exact match (cv=2)
-        assert_eq!(gammas, vec![Some(1), Some(0), Some(2)]);
+        assert_eq!(gammas, vec![Some(1i8), Some(0i8), Some(2i8)]);
     }
 
     #[test]
@@ -410,7 +413,7 @@ mod tests {
 
         // Build a DF with gamma values
         let df = df!(
-            "gamma_name" => [1i32, 0, -1],
+            "gamma_name" => [1i8, 0i8, -1i8],
         )
         .unwrap();
 

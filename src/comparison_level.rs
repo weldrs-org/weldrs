@@ -13,8 +13,8 @@ use crate::error::{Result, WeldrsError};
 
 /// Apply a string predicate in parallel across paired struct columns.
 ///
-/// Extracts left/right string fields from a struct column, then uses rayon to
-/// evaluate the predicate across all pairs concurrently.
+/// Uses index-based parallel iteration with `StringChunked::get(i)` to avoid
+/// collecting both columns into intermediate `Vec<Option<&str>>`.
 fn par_pairwise_string_predicate(
     s: &Column,
     col_l_key: &PlSmallStr,
@@ -24,17 +24,15 @@ fn par_pairwise_string_predicate(
     let ca = s.struct_()?;
     let left_str = ca.field_by_name(col_l_key)?.str()?.clone();
     let right_str = ca.field_by_name(col_r_key)?.str()?.clone();
-    let left_vec: Vec<Option<&str>> = left_str.into_iter().collect();
-    let right_vec: Vec<Option<&str>> = right_str.into_iter().collect();
-    let bools: Vec<bool> = left_vec
-        .par_iter()
-        .zip(right_vec.par_iter())
-        .map(|(l, r)| match (l, r) {
-            (Some(l), Some(r)) => predicate(l, r),
-            _ => false,
+    let n = left_str.len();
+    let bools: Vec<Option<bool>> = (0..n)
+        .into_par_iter()
+        .map(|i| match (left_str.get(i), right_str.get(i)) {
+            (Some(l), Some(r)) => Some(predicate(l, r)),
+            _ => Some(false),
         })
         .collect();
-    let out: BooleanChunked = bools.into_iter().map(Some).collect();
+    let out = BooleanChunked::from_iter(bools);
     Ok(out.into_column())
 }
 
@@ -94,7 +92,7 @@ impl ComparisonPredicate {
                     .map(
                         move |s: Column| {
                             par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
-                                strsim::levenshtein(l, r) as u32 <= threshold
+                                crate::string_distance::levenshtein_within(l, r, threshold)
                             })
                             .map(Some)
                         },
@@ -112,7 +110,7 @@ impl ComparisonPredicate {
                     .map(
                         move |s: Column| {
                             par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
-                                strsim::jaro_winkler(l, r) >= threshold
+                                crate::string_distance::jaro_winkler_similarity(l, r) >= threshold
                             })
                             .map(Some)
                         },
@@ -130,7 +128,7 @@ impl ComparisonPredicate {
                     .map(
                         move |s: Column| {
                             par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
-                                strsim::jaro(l, r) >= threshold
+                                crate::string_distance::jaro_similarity(l, r) >= threshold
                             })
                             .map(Some)
                         },

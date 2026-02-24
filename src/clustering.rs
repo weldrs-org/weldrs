@@ -9,7 +9,8 @@ use std::collections::HashMap;
 
 use crate::error::{Result, WeldrsError};
 
-/// Union-Find (disjoint set) data structure with path compression and union by rank.
+/// Union-Find (disjoint set) data structure with iterative path compression
+/// and union by rank. Supports incremental growth via `grow()`.
 struct UnionFind {
     parent: Vec<usize>,
     rank: Vec<usize>,
@@ -23,11 +24,28 @@ impl UnionFind {
         }
     }
 
-    fn find(&mut self, x: usize) -> usize {
-        if self.parent[x] != x {
-            self.parent[x] = self.find(self.parent[x]);
+    /// Add one new element (returns its index).
+    fn grow(&mut self) -> usize {
+        let idx = self.parent.len();
+        self.parent.push(idx);
+        self.rank.push(0);
+        idx
+    }
+
+    /// Iterative path-compression find — avoids stack overflow on deep chains.
+    fn find(&mut self, mut x: usize) -> usize {
+        // First pass: find root.
+        let mut root = x;
+        while self.parent[root] != root {
+            root = self.parent[root];
         }
-        self.parent[x]
+        // Second pass: compress path.
+        while self.parent[x] != root {
+            let next = self.parent[x];
+            self.parent[x] = root;
+            x = next;
+        }
+        root
     }
 
     fn union(&mut self, x: usize, y: usize) {
@@ -85,9 +103,11 @@ pub fn cluster_pairwise_predictions(
     let uid_l_ca = uid_l.i64().unwrap();
     let uid_r_ca = uid_r.i64().unwrap();
 
-    // Collect all unique IDs and build an index map.
+    // Single-pass: collect IDs and union in one iteration using a growable
+    // union-find.
     let mut id_to_index: HashMap<i64, usize> = HashMap::new();
     let mut ids: Vec<i64> = Vec::new();
+    let mut uf = UnionFind::new(0);
 
     for (l, r, mp) in uid_l_ca
         .into_iter()
@@ -98,31 +118,14 @@ pub fn cluster_pairwise_predictions(
         if let (Some(l), Some(r), Some(p)) = (l, r, mp)
             && p >= threshold
         {
-            if let std::collections::hash_map::Entry::Vacant(e) = id_to_index.entry(l) {
-                e.insert(ids.len());
+            let il = *id_to_index.entry(l).or_insert_with(|| {
                 ids.push(l);
-            }
-            if let std::collections::hash_map::Entry::Vacant(e) = id_to_index.entry(r) {
-                e.insert(ids.len());
+                uf.grow()
+            });
+            let ir = *id_to_index.entry(r).or_insert_with(|| {
                 ids.push(r);
-            }
-        }
-    }
-
-    // Build union-find and process edges.
-    let mut uf = UnionFind::new(ids.len());
-
-    for (l, r, mp) in uid_l_ca
-        .into_iter()
-        .zip(uid_r_ca.into_iter())
-        .zip(match_probs.into_iter())
-        .map(|((l, r), mp)| (l, r, mp))
-    {
-        if let (Some(l), Some(r), Some(p)) = (l, r, mp)
-            && p >= threshold
-        {
-            let il = id_to_index[&l];
-            let ir = id_to_index[&r];
+                uf.grow()
+            });
             uf.union(il, ir);
         }
     }
@@ -236,5 +239,24 @@ mod tests {
             cluster_pairwise_predictions(&preds, 0.5, "unique_id_l", "unique_id_r").unwrap();
 
         assert_eq!(clusters.height(), 0);
+    }
+
+    #[test]
+    fn test_deep_chain_no_stack_overflow() {
+        // Create a chain of 10K sequential unions: 0-1, 1-2, 2-3, ..., 9999-10000.
+        let n = 10_000;
+        let uid_l: Vec<i64> = (0..n).collect();
+        let uid_r: Vec<i64> = (1..=n).collect();
+        let probs: Vec<f64> = vec![0.9; n as usize];
+
+        let preds = predictions_df(&uid_l, &uid_r, &probs);
+        let clusters =
+            cluster_pairwise_predictions(&preds, 0.5, "unique_id_l", "unique_id_r").unwrap();
+
+        // All records should be in one cluster.
+        let cids = clusters.column("cluster_id").unwrap().i64().unwrap();
+        let cluster_ids: std::collections::HashSet<i64> = cids.into_no_null_iter().collect();
+        assert_eq!(cluster_ids.len(), 1, "All should be in one cluster");
+        assert_eq!(clusters.height(), (n + 1) as usize);
     }
 }

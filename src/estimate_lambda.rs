@@ -56,8 +56,25 @@ pub fn estimate_probability_two_random_records_match(
     let uid_l = format!("{unique_id_col}_l");
     let uid_r = format!("{unique_id_col}_r");
 
-    let left = collected.clone().lazy().select([all().name().suffix("_l")]);
-    let right = collected.lazy().select([all().name().suffix("_r")]);
+    // Pre-select only the uid and blocking-key columns before joining.
+    // This reduces the join payload from all columns to just the essentials.
+    let needed_cols: std::collections::HashSet<&str> = {
+        let mut s = std::collections::HashSet::new();
+        s.insert(unique_id_col);
+        for rule in deterministic_rules {
+            for c in &rule.columns {
+                s.insert(c.as_str());
+            }
+        }
+        s
+    };
+    let select_exprs: Vec<Expr> = needed_cols.iter().map(|&c| col(c)).collect();
+
+    let slim = collected
+        .lazy()
+        .select(select_exprs);
+    let left = slim.clone().select([all().name().suffix("_l")]);
+    let right = slim.select([all().name().suffix("_r")]);
 
     let mut all_pairs: Vec<LazyFrame> = Vec::new();
 

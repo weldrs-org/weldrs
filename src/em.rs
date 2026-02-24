@@ -71,49 +71,8 @@ pub fn expectation_maximisation(
         .collect()
         .map_err(|e| WeldrsError::Training(format!("Failed to count agreement patterns: {e}")))?;
 
-    let mut current_lambda = lambda;
-    let mut results = Vec::new();
-
-    for iteration in 0..training.max_iterations {
-        // E-step: compute match probability for each agreement pattern.
-        let match_probs = e_step(&pattern_counts, &comparisons, current_lambda, gamma_prefix)?;
-
-        // M-step: update parameters.
-        let (new_comparisons, new_lambda, max_change) =
-            m_step(&pattern_counts, &match_probs, &comparisons, gamma_prefix)?;
-
-        comparisons = new_comparisons;
-        current_lambda = new_lambda;
-
-        results.push(EmIterationResult {
-            iteration,
-            lambda: current_lambda,
-            max_change,
-            comparisons: comparisons.clone(),
-        });
-
-        if max_change < training.em_convergence {
-            break;
-        }
-    }
-
-    Ok(results)
-}
-
-/// E-step: compute the match probability for each agreement pattern.
-///
-/// Returns a Vec<f64> aligned with the rows of `pattern_counts`.
-fn e_step(
-    pattern_counts: &DataFrame,
-    comparisons: &[Comparison],
-    lambda: f64,
-    gamma_prefix: &str,
-) -> Result<Vec<f64>> {
-    let n_rows = pattern_counts.height();
-    let prior_odds = probability::prob_to_bayes_factor(lambda);
-
-    // Pre-extract gamma columns for cache-friendly parallel access.
-    let gamma_columns: Vec<Vec<i32>> = comparisons
+    // Pre-extract gamma columns once — shared across all E/M steps.
+    let gamma_columns: Vec<Vec<i8>> = comparisons
         .iter()
         .map(|comp| {
             let col_name = comp.gamma_column_name(gamma_prefix);
@@ -121,49 +80,13 @@ fn e_step(
                 .column(&col_name)
                 .map_err(|e| WeldrsError::Training(format!("Missing gamma column: {e}")))?;
             let gammas = series
-                .i32()
+                .i8()
                 .map_err(|e| WeldrsError::Training(format!("Gamma column type error: {e}")))?;
-            Ok(gammas.into_iter().map(|v| v.unwrap_or(-1)).collect())
+            Ok(gammas.into_iter().map(|v| v.unwrap_or(-1i8)).collect())
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let match_probs: Vec<f64> = (0..n_rows)
-        .into_par_iter()
-        .map(|row| {
-            let mut bf_product = prior_odds;
-            for (comp_idx, comp) in comparisons.iter().enumerate() {
-                let gamma_val = gamma_columns[comp_idx][row];
-                bf_product *= level_bayes_factor(comp, gamma_val);
-            }
-            probability::bayes_factor_to_prob(bf_product)
-        })
-        .collect();
-
-    Ok(match_probs)
-}
-
-/// Get the Bayes factor for a comparison level given its gamma value.
-fn level_bayes_factor(comp: &Comparison, gamma_val: i32) -> f64 {
-    for level in &comp.comparison_levels {
-        if level.comparison_vector_value == gamma_val {
-            if level.is_null_level {
-                return 1.0; // Null levels are neutral
-            }
-            return level.bayes_factor().unwrap_or(1.0);
-        }
-    }
-    1.0
-}
-
-/// M-step: update m, u, and lambda parameters from the E-step match probabilities.
-///
-/// Returns (updated comparisons, updated lambda, max parameter change).
-fn m_step(
-    pattern_counts: &DataFrame,
-    match_probs: &[f64],
-    comparisons: &[Comparison],
-    gamma_prefix: &str,
-) -> Result<(Vec<Comparison>, f64, f64)> {
+    // Pre-extract counts once.
     let count_series = pattern_counts
         .column("__count")
         .map_err(|e| WeldrsError::Training(format!("Missing count column: {e}")))?;
@@ -174,21 +97,161 @@ fn m_step(
         .map(|v| v as f64)
         .collect();
 
-    // Pre-extract gamma columns for parallel access.
-    let gamma_columns: Vec<Vec<i32>> = comparisons
+    let mut current_lambda = lambda;
+    let mut results = Vec::new();
+
+    for iteration in 0..training.max_iterations {
+        // Pre-compute Bayes factor lookup tables (O(1) per gamma lookup).
+        let bf_tables = build_bf_tables(&comparisons);
+
+        // Pre-compute null-level lookup tables for the M-step.
+        let null_tables = build_null_tables(&comparisons);
+
+        // E-step: compute match probability for each agreement pattern.
+        let match_probs = e_step(
+            &gamma_columns,
+            &bf_tables,
+            &comparisons,
+            current_lambda,
+        )?;
+
+        // M-step: update parameters.
+        let (new_comparisons, new_lambda, max_change) =
+            m_step(&gamma_columns, &counts, &match_probs, &comparisons, &null_tables)?;
+
+        comparisons = new_comparisons;
+        current_lambda = new_lambda;
+
+        if training.store_history || max_change < training.em_convergence {
+            results.push(EmIterationResult {
+                iteration,
+                lambda: current_lambda,
+                max_change,
+                comparisons: comparisons.clone(),
+            });
+        }
+
+        if max_change < training.em_convergence {
+            break;
+        }
+    }
+
+    // Always ensure at least one result with the final state.
+    if results.is_empty() || results.last().unwrap().comparisons.as_ptr() != comparisons.as_ptr() {
+        // If store_history was false and we didn't converge, push the final state.
+        if !training.store_history {
+            let iteration = results.len();
+            results.push(EmIterationResult {
+                iteration,
+                lambda: current_lambda,
+                max_change: f64::NAN,
+                comparisons,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+/// Build a lookup table for each comparison: `bf_tables[comp_idx][gamma_val + 1] = bayes_factor`.
+///
+/// This converts the O(L) linear scan in `level_bayes_factor` to O(1).
+fn build_bf_tables(comparisons: &[Comparison]) -> Vec<Vec<f64>> {
+    comparisons
         .iter()
         .map(|comp| {
-            let col_name = comp.gamma_column_name(gamma_prefix);
-            let series = pattern_counts
-                .column(&col_name)
-                .map_err(|e| WeldrsError::Training(format!("Missing gamma column: {e}")))?;
-            let gammas = series
-                .i32()
-                .map_err(|e| WeldrsError::Training(format!("Gamma type error: {e}")))?;
-            Ok(gammas.into_iter().map(|v| v.unwrap_or(-1)).collect())
+            let max_cv = comp
+                .comparison_levels
+                .iter()
+                .map(|l| l.comparison_vector_value)
+                .max()
+                .unwrap_or(0);
+            // Index space: gamma_val + 1 (since null = -1 → index 0).
+            let size = (max_cv + 2) as usize;
+            let mut table = vec![1.0f64; size];
+            for level in &comp.comparison_levels {
+                let idx = (level.comparison_vector_value + 1) as usize;
+                if idx < size {
+                    table[idx] = if level.is_null_level {
+                        1.0
+                    } else {
+                        level.bayes_factor().unwrap_or(1.0)
+                    };
+                }
+            }
+            table
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect()
+}
 
+/// Build a lookup table indicating which gamma values correspond to null levels.
+/// `null_tables[comp_idx][gamma_val + 1] = is_null`.
+fn build_null_tables(comparisons: &[Comparison]) -> Vec<Vec<bool>> {
+    comparisons
+        .iter()
+        .map(|comp| {
+            let max_cv = comp
+                .comparison_levels
+                .iter()
+                .map(|l| l.comparison_vector_value)
+                .max()
+                .unwrap_or(0);
+            let size = (max_cv + 2) as usize;
+            let mut table = vec![false; size];
+            for level in &comp.comparison_levels {
+                let idx = (level.comparison_vector_value + 1) as usize;
+                if idx < size && level.is_null_level {
+                    table[idx] = true;
+                }
+            }
+            table
+        })
+        .collect()
+}
+
+/// E-step: compute the match probability for each agreement pattern.
+///
+/// Returns a Vec<f64> aligned with the rows of `pattern_counts`.
+fn e_step(
+    gamma_columns: &[Vec<i8>],
+    bf_tables: &[Vec<f64>],
+    comparisons: &[Comparison],
+    lambda: f64,
+) -> Result<Vec<f64>> {
+    let n_rows = gamma_columns.first().map_or(0, |c| c.len());
+    let prior_odds = probability::prob_to_bayes_factor(lambda);
+
+    let match_probs: Vec<f64> = (0..n_rows)
+        .into_par_iter()
+        .map(|row| {
+            let mut bf_product = prior_odds;
+            for (comp_idx, _comp) in comparisons.iter().enumerate() {
+                let gamma_val = gamma_columns[comp_idx][row];
+                let idx = (gamma_val + 1) as usize;
+                let table = &bf_tables[comp_idx];
+                let bf = if idx < table.len() { table[idx] } else { 1.0 };
+                bf_product *= bf;
+            }
+            probability::bayes_factor_to_prob(bf_product)
+        })
+        .collect();
+
+    Ok(match_probs)
+}
+
+/// M-step: update m, u, and lambda parameters from the E-step match probabilities.
+///
+/// Uses a single-pass accumulation per comparison with per-level accumulators
+/// indexed by gamma value, replacing the previous (1 + L) passes.
+///
+/// Returns (updated comparisons, updated lambda, max parameter change).
+fn m_step(
+    gamma_columns: &[Vec<i8>],
+    counts: &[f64],
+    match_probs: &[f64],
+    comparisons: &[Comparison],
+    null_tables: &[Vec<bool>],
+) -> Result<(Vec<Comparison>, f64, f64)> {
     // Parallelize the outer loop over comparisons — each comparison's m/u
     // update is independent.
     let results: Vec<(Comparison, f64)> = comparisons
@@ -197,23 +260,38 @@ fn m_step(
         .map(|(comp_idx, comp)| {
             let mut comp = comp.clone();
             let gammas = &gamma_columns[comp_idx];
+            let null_table = &null_tables[comp_idx];
             let mut local_max_change = 0.0_f64;
 
-            // Compute total weighted match / non-match counts for non-null levels.
+            let max_cv = comp
+                .comparison_levels
+                .iter()
+                .map(|l| l.comparison_vector_value)
+                .max()
+                .unwrap_or(0);
+            let table_size = (max_cv + 2) as usize;
+
+            // Single-pass: accumulate per-level match/non-match weighted counts.
+            let mut level_match = vec![0.0f64; table_size];
+            let mut level_non_match = vec![0.0f64; table_size];
             let mut total_match_weight = 0.0_f64;
             let mut total_non_match_weight = 0.0_f64;
 
             for (row, &mp) in match_probs.iter().enumerate() {
                 let gv = gammas[row];
-                let is_null = comp
-                    .comparison_levels
-                    .iter()
-                    .any(|l| l.comparison_vector_value == gv && l.is_null_level);
+                let idx = (gv + 1) as usize;
+                let is_null = idx < null_table.len() && null_table[idx];
                 if is_null {
                     continue;
                 }
-                total_match_weight += mp * counts[row];
-                total_non_match_weight += (1.0 - mp) * counts[row];
+                let weighted_match = mp * counts[row];
+                let weighted_non_match = (1.0 - mp) * counts[row];
+                total_match_weight += weighted_match;
+                total_non_match_weight += weighted_non_match;
+                if idx < table_size {
+                    level_match[idx] += weighted_match;
+                    level_non_match[idx] += weighted_non_match;
+                }
             }
 
             for level in &mut comp.comparison_levels {
@@ -221,19 +299,13 @@ fn m_step(
                     continue;
                 }
 
-                let mut level_match = 0.0_f64;
-                let mut level_non_match = 0.0_f64;
-
-                for (row, &mp) in match_probs.iter().enumerate() {
-                    if gammas[row] == level.comparison_vector_value {
-                        level_match += mp * counts[row];
-                        level_non_match += (1.0 - mp) * counts[row];
-                    }
-                }
+                let idx = (level.comparison_vector_value + 1) as usize;
+                let lm = if idx < table_size { level_match[idx] } else { 0.0 };
+                let lnm = if idx < table_size { level_non_match[idx] } else { 0.0 };
 
                 if !level.fix_m_probability {
                     let new_m = if total_match_weight > 0.0 {
-                        level_match / total_match_weight
+                        lm / total_match_weight
                     } else {
                         level.m_probability.unwrap_or(0.0)
                     };
@@ -245,7 +317,7 @@ fn m_step(
 
                 if !level.fix_u_probability {
                     let new_u = if total_non_match_weight > 0.0 {
-                        level_non_match / total_non_match_weight
+                        lnm / total_non_match_weight
                     } else {
                         level.u_probability.unwrap_or(0.0)
                     };
@@ -293,8 +365,8 @@ mod tests {
     /// each with 2 non-null levels (exact=1, else=0).
     fn make_pattern_counts() -> LazyFrame {
         df!(
-            "gamma_first_name" => [1i32, 1, 0, 0],
-            "gamma_surname" => [1i32, 0, 1, 0],
+            "gamma_first_name" => [1i8, 1, 0, 0],
+            "gamma_surname" => [1i8, 0, 1, 0],
             "__count" => [50u32, 30, 20, 900],
         )
         .unwrap()
@@ -323,6 +395,7 @@ mod tests {
         let training = TrainingSettings {
             em_convergence: 0.001,
             max_iterations: 100,
+            ..Default::default()
         };
 
         let results =
@@ -344,6 +417,7 @@ mod tests {
         let training = TrainingSettings {
             em_convergence: 0.0001,
             max_iterations: 25,
+            ..Default::default()
         };
 
         // Record initial m for exact match level of first_name
@@ -381,6 +455,7 @@ mod tests {
         let training = TrainingSettings {
             em_convergence: 0.0001,
             max_iterations: 100,
+            ..Default::default()
         };
 
         let results =
@@ -411,6 +486,7 @@ mod tests {
         let training = TrainingSettings {
             em_convergence: 0.0001,
             max_iterations: 25,
+            ..Default::default()
         };
 
         // Fix first_name (it overlaps with the training blocking rule)
@@ -457,6 +533,7 @@ mod tests {
         let training = TrainingSettings {
             em_convergence: 0.0001,
             max_iterations: 50,
+            ..Default::default()
         };
 
         let run = || {
@@ -524,6 +601,7 @@ mod tests {
         let training = TrainingSettings {
             em_convergence: 0.0001,
             max_iterations: 25,
+            ..Default::default()
         };
         let initial_lambda = 0.05;
 
@@ -536,5 +614,31 @@ mod tests {
             (final_lambda - initial_lambda).abs() > 1e-6,
             "Lambda should change from initial value, initial={initial_lambda}, final={final_lambda}"
         );
+    }
+
+    #[test]
+    fn test_em_no_history() {
+        let cv = make_pattern_counts();
+        let comparisons = make_comparisons();
+        let training = TrainingSettings {
+            em_convergence: 0.0001,
+            max_iterations: 25,
+            store_history: false,
+        };
+
+        let results =
+            expectation_maximisation(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+
+        // With store_history=false, should have at most 2 entries
+        // (final convergence entry + possible last-state entry).
+        assert!(
+            results.len() <= 2,
+            "Without history storage, should have few results, got {}",
+            results.len()
+        );
+
+        // The last result should still have valid comparisons.
+        let last = results.last().unwrap();
+        assert!(!last.comparisons.is_empty());
     }
 }
