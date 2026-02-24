@@ -88,6 +88,7 @@ pub mod linker;
 pub mod predict;
 pub mod probability;
 pub mod settings;
+pub mod string_distance;
 
 /// Convenience re-exports for common usage.
 pub mod prelude {

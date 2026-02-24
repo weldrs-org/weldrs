@@ -94,11 +94,11 @@ mod tests {
         assert!(col_names.contains(&"gamma_surname"));
         assert!(col_names.contains(&"gamma_city"));
 
-        let get_gammas = |name: &str| -> Vec<Option<i32>> {
+        let get_gammas = |name: &str| -> Vec<Option<i8>> {
             result
                 .column(name)
                 .unwrap()
-                .i32()
+                .i8()
                 .unwrap()
                 .into_iter()
                 .collect()
@@ -107,12 +107,18 @@ mod tests {
         // Alice==Alice(1), Bob!=Charlie(0), Carol==Carol(1)
         assert_eq!(
             get_gammas("gamma_first_name"),
-            vec![Some(1), Some(0), Some(1)]
+            vec![Some(1i8), Some(0i8), Some(1i8)]
         );
         // Smith==Smith(1), Jones==Jones(1), Brown!=White(0)
-        assert_eq!(get_gammas("gamma_surname"), vec![Some(1), Some(1), Some(0)]);
+        assert_eq!(
+            get_gammas("gamma_surname"),
+            vec![Some(1i8), Some(1i8), Some(0i8)]
+        );
         // London==London(1), Paris!=Rome(0), Berlin==Berlin(1)
-        assert_eq!(get_gammas("gamma_city"), vec![Some(1), Some(0), Some(1)]);
+        assert_eq!(
+            get_gammas("gamma_city"),
+            vec![Some(1i8), Some(0i8), Some(1i8)]
+        );
     }
 
     #[test]
@@ -133,15 +139,15 @@ mod tests {
             .collect()
             .unwrap();
 
-        let gammas: Vec<Option<i32>> = result
+        let gammas: Vec<Option<i8>> = result
             .column("gamma_name")
             .unwrap()
-            .i32()
+            .i8()
             .unwrap()
             .into_iter()
             .collect();
 
         // Alice==Alice → exact(1), Bob!=Carol → else(0)
-        assert_eq!(gammas, vec![Some(1), Some(0)]);
+        assert_eq!(gammas, vec![Some(1i8), Some(0i8)]);
     }
 }

@@ -126,11 +126,23 @@ pub fn generate_blocked_pairs(
             .with_column(lit(0u32).alias("match_key")));
     }
 
-    // Union all pairs and deduplicate on (uid_l, uid_r).
-    let unioned = concat(&all_pairs, UnionArgs::default())?;
+    // Incremental deduplication via anti-join: each subsequent rule's pairs
+    // are anti-joined against the accumulated result before being appended.
+    // This avoids a potentially expensive final `unique()` over the full union.
+    let mut accumulated = all_pairs.remove(0);
+    for extra in all_pairs {
+        let new_only = extra.join(
+            accumulated
+                .clone()
+                .select([col(uid_l.as_str()), col(uid_r.as_str())]),
+            [col(uid_l.as_str()), col(uid_r.as_str())],
+            [col(uid_l.as_str()), col(uid_r.as_str())],
+            JoinArgs::new(JoinType::Anti),
+        );
+        accumulated = concat(&[accumulated, new_only], UnionArgs::default())?;
+    }
 
-    // Keep the first occurrence of each (uid_l, uid_r) pair.
-    Ok(unioned.unique(Some(vec![uid_l, uid_r]), UniqueKeepStrategy::First))
+    Ok(accumulated)
 }
 
 #[cfg(test)]

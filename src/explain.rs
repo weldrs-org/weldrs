@@ -423,8 +423,8 @@ mod tests {
             "first_name_r" => ["Alice", "Xavier", "Carol"],
             "surname_l" => ["Smith", "Jones", "Smith"],
             "surname_r" => ["Smith", "Jones", "Brown"],
-            "gamma_first_name" => [1i32, 0, 1],
-            "gamma_surname" => [1i32, 1, 0],
+            "gamma_first_name" => [1i8, 0, 1],
+            "gamma_surname" => [1i8, 1, 0],
         )
         .unwrap();
 
@@ -695,7 +695,7 @@ mod tests {
             "unique_id_r" => [2i64],
             "col_l" => [None::<&str>],
             "col_r" => [None::<&str>],
-            "gamma_col" => [-1i32],
+            "gamma_col" => [-1i8],
         )
         .unwrap();
 

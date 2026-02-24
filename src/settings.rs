@@ -28,6 +28,15 @@ pub struct TrainingSettings {
     pub em_convergence: f64,
     /// Maximum number of EM iterations.
     pub max_iterations: usize,
+    /// Whether to store a snapshot of all comparisons at each iteration.
+    /// When `false`, only the final result is kept, avoiding a `clone()` per
+    /// iteration. Default: `true` for backward compatibility.
+    #[serde(default = "default_store_history")]
+    pub store_history: bool,
+}
+
+fn default_store_history() -> bool {
+    true
 }
 
 impl Default for TrainingSettings {
@@ -35,6 +44,7 @@ impl Default for TrainingSettings {
         Self {
             em_convergence: 0.0001,
             max_iterations: 25,
+            store_history: true,
         }
     }
 }
@@ -202,6 +212,7 @@ mod tests {
             .training_settings(TrainingSettings {
                 em_convergence: 0.001,
                 max_iterations: 50,
+                ..Default::default()
             })
             .blocking_rule(BlockingRule::on(&["city"]))
             .build()

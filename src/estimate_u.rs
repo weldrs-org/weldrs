@@ -40,8 +40,26 @@ pub fn estimate_u_using_random_sampling(
     let uid_l = format!("{unique_id_col}_l");
     let uid_r = format!("{unique_id_col}_r");
 
+    // Pre-select only uid + comparison columns before sampling and cross-join.
+    // This reduces the cross-join payload significantly for wide DataFrames.
+    let needed_cols: Vec<PlSmallStr> = {
+        let mut cols: Vec<&str> = vec![unique_id_col];
+        for comp in comparisons.iter() {
+            for ic in &comp.input_columns {
+                cols.push(ic.as_str());
+            }
+        }
+        cols.sort_unstable();
+        cols.dedup();
+        cols.into_iter().map(PlSmallStr::from).collect()
+    };
+
+    let slim = collected
+        .select(needed_cols)
+        .map_err(|e| WeldrsError::Training(format!("Column selection failed: {e}")))?;
+
     // Sample and create left/right DataFrames.
-    let sampled = collected
+    let sampled = slim
         .sample_n_literal(sample_size, false, true, Some(42))
         .map_err(|e| WeldrsError::Training(format!("Sampling failed: {e}")))?;
 
@@ -88,13 +106,13 @@ pub fn estimate_u_using_random_sampling(
             .column(&gamma_col_name)
             .map_err(|e| WeldrsError::Training(format!("Missing gamma column: {e}")))?;
         let gammas = gamma_series
-            .i32()
+            .i8()
             .map_err(|e| WeldrsError::Training(format!("Gamma type error: {e}")))?;
 
         // Total non-null count for this comparison.
         let mut total_non_null = 0.0_f64;
         for (row, &count) in counts.iter().enumerate() {
-            let gv = gammas.get(row).unwrap_or(-1);
+            let gv = gammas.get(row).unwrap_or(-1) as i32;
             let is_null = comp
                 .comparison_levels
                 .iter()
@@ -109,9 +127,10 @@ pub fn estimate_u_using_random_sampling(
                 continue;
             }
 
+            let cv = level.comparison_vector_value as i8;
             let mut level_count = 0.0_f64;
             for (row, &count) in counts.iter().enumerate() {
-                if gammas.get(row) == Some(level.comparison_vector_value) {
+                if gammas.get(row) == Some(cv) {
                     level_count += count;
                 }
             }
