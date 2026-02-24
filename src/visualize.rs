@@ -300,8 +300,7 @@ pub fn match_weights_chart_svg(summary: &ModelSummary, options: &ChartOptions) -
             .draw()
             .map_err(|e| vis_err(e.to_string()))?;
 
-        for i in 0..n {
-            let w = bar_weights[i];
+        for (i, &w) in bar_weights.iter().enumerate().take(n) {
             let color = if i == 0 {
                 rgb(options.prior_color)
             } else if w >= 0.0 {
@@ -389,7 +388,7 @@ pub fn weight_distribution_chart_svg(
     let bins = num_bins.unwrap_or_else(|| {
         // Sturges' rule.
         let k = ((finite.len() as f64).log2().ceil() as usize) + 1;
-        k.max(5).min(50)
+        k.clamp(5, 50)
     });
 
     let range = w_max - w_min;

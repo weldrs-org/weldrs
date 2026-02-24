@@ -65,3 +65,7 @@ harness = false
 [[bench]]
 name = "predict_bench"
 harness = false
+
+[[example]]
+name = "visualize_charts"
+required-features = ["visualize"]
