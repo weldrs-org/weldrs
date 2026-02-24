@@ -4,13 +4,13 @@
 
 Fellegi-Sunter probabilistic record linkage in Rust, powered by [Polars](https://pola.rs/).
 
-A Rust-native implementation inspired by the [Splink](https://github.com/moj-analytical-services/splink) Python project.
+A Rust-native implementation inspired by the [Splink](https://github.com/moj-analytical-services/splink) Python package and the [fastLink](https://github.com/kosukeimai/fastLink) R package.
 
 ## Features
 
 - **Blocking rules** — reduce the comparison space with equi-join blocking on one or more columns
 - **Exact and fuzzy comparisons** — Jaro-Winkler, Levenshtein, and Jaro similarity predicates alongside exact matching
-- **EM training** — unsupervised Expectation-Maximisation to learn m/u probabilities
+- **EM training** — unsupervised Expectation-Maximization to learn m/u probabilities
 - **Fellegi-Sunter scoring** — Bayes-factor match weights and match probabilities for every candidate pair
 - **Connected-components clustering** — union-find grouping of linked records
 - **Model serialization** — save and load trained model parameters as JSON

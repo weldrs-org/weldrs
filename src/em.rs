@@ -1,4 +1,4 @@
-//! Expectation-Maximisation (EM) training.
+//! Expectation-Maximization (EM) training.
 //!
 //! The EM algorithm iteratively estimates m-probabilities, u-probabilities,
 //! and lambda from agreement-pattern counts derived from blocked record
@@ -33,7 +33,7 @@ pub struct EmIterationResult {
 /// m/u parameters updated (they overlap with the training blocking rule).
 ///
 /// Returns the iteration history (the last entry contains the final parameters).
-pub fn expectation_maximisation(
+pub fn expectation_maximization(
     comparison_vectors: &LazyFrame,
     mut comparisons: Vec<Comparison>,
     lambda: f64,
@@ -487,7 +487,7 @@ mod tests {
         };
 
         let results =
-            expectation_maximisation(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
 
         let last = results.last().unwrap();
         assert!(
@@ -518,7 +518,7 @@ mod tests {
             .unwrap();
 
         let results =
-            expectation_maximisation(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
 
         let final_m = results.last().unwrap().comparisons[0]
             .comparison_levels
@@ -547,7 +547,7 @@ mod tests {
         };
 
         let results =
-            expectation_maximisation(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
 
         let final_comp = &results.last().unwrap().comparisons[0];
         let exact_level = final_comp
@@ -584,7 +584,7 @@ mod tests {
             .map(|l| (l.m_probability, l.u_probability))
             .collect();
 
-        let results = expectation_maximisation(
+        let results = expectation_maximization(
             &cv,
             comparisons,
             0.05,
@@ -627,7 +627,7 @@ mod tests {
         let run = || {
             let cv = make_pattern_counts();
             let comparisons = make_comparisons();
-            expectation_maximisation(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap()
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap()
         };
 
         let results_a = run();
@@ -694,7 +694,7 @@ mod tests {
         let initial_lambda = 0.05;
 
         let results =
-            expectation_maximisation(&cv, comparisons, initial_lambda, &training, "gamma_", &[])
+            expectation_maximization(&cv, comparisons, initial_lambda, &training, "gamma_", &[])
                 .unwrap();
 
         let final_lambda = results.last().unwrap().lambda;
@@ -715,7 +715,7 @@ mod tests {
         };
 
         let results =
-            expectation_maximisation(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
 
         // With store_history=false, should have at most 2 entries
         // (final convergence entry + possible last-state entry).
