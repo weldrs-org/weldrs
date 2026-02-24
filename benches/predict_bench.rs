@@ -79,9 +79,7 @@ fn bench_predict(c: &mut Criterion) {
         });
 
         group.bench_function("direct", |b| {
-            b.iter(|| {
-                predict_direct(&df, &comparisons, 0.05, "gamma_", "bf_", None, None).unwrap()
-            })
+            b.iter(|| predict_direct(&df, &comparisons, 0.05, "gamma_", "bf_", None, None).unwrap())
         });
 
         group.finish();

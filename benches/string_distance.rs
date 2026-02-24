@@ -63,9 +63,9 @@ fn bench_strsim_jaro_winkler(c: &mut Criterion) {
 
 fn bench_levenshtein_short_ascii(c: &mut Criterion) {
     let names = [
-        "James", "Jamxs", "Robert", "Robxrt", "Michael", "Michaxl", "William", "Willixm",
-        "David", "Davxd", "Richard", "Richxrd", "Joseph", "Josxph", "Thomas", "Thomxs",
-        "Charles", "Charlxs", "Daniel", "Danixl",
+        "James", "Jamxs", "Robert", "Robxrt", "Michael", "Michaxl", "William", "Willixm", "David",
+        "Davxd", "Richard", "Richxrd", "Joseph", "Josxph", "Thomas", "Thomxs", "Charles",
+        "Charlxs", "Daniel", "Danixl",
     ];
     let n = 100_000;
     let left: Vec<&str> = (0..n).map(|i| names[i % 10 * 2]).collect();
