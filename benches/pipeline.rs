@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use polars::prelude::*;
 use rand::prelude::*;
 use rand::rngs::StdRng;
@@ -6,20 +6,62 @@ use weldrs::comparison::ComparisonBuilder;
 use weldrs::prelude::*;
 
 const FIRST_NAMES: &[&str] = &[
-    "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael",
-    "Linda", "David", "Elizabeth", "William", "Barbara", "Richard", "Susan",
-    "Joseph", "Jessica", "Thomas", "Sarah", "Charles", "Karen",
+    "James",
+    "Mary",
+    "Robert",
+    "Patricia",
+    "John",
+    "Jennifer",
+    "Michael",
+    "Linda",
+    "David",
+    "Elizabeth",
+    "William",
+    "Barbara",
+    "Richard",
+    "Susan",
+    "Joseph",
+    "Jessica",
+    "Thomas",
+    "Sarah",
+    "Charles",
+    "Karen",
 ];
 
 const SURNAMES: &[&str] = &[
-    "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller",
-    "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez",
-    "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
+    "Smith",
+    "Johnson",
+    "Williams",
+    "Brown",
+    "Jones",
+    "Garcia",
+    "Miller",
+    "Davis",
+    "Rodriguez",
+    "Martinez",
+    "Hernandez",
+    "Lopez",
+    "Gonzalez",
+    "Wilson",
+    "Anderson",
+    "Thomas",
+    "Taylor",
+    "Moore",
+    "Jackson",
+    "Martin",
 ];
 
 const CITIES: &[&str] = &[
-    "London", "Manchester", "Birmingham", "Leeds", "Glasgow", "Liverpool",
-    "Bristol", "Sheffield", "Edinburgh", "Cardiff",
+    "London",
+    "Manchester",
+    "Birmingham",
+    "Leeds",
+    "Glasgow",
+    "Liverpool",
+    "Bristol",
+    "Sheffield",
+    "Edinburgh",
+    "Cardiff",
 ];
 
 fn generate_dataset(n: usize) -> DataFrame {
@@ -83,7 +125,9 @@ fn bench_pipeline_10k(c: &mut Criterion) {
                 .estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))
                 .unwrap();
             let predictions = linker.predict(&lf, Some(0.0)).unwrap().collect().unwrap();
-            let _clusters = linker.cluster_pairwise_predictions(&predictions, 0.5).unwrap();
+            let _clusters = linker
+                .cluster_pairwise_predictions(&predictions, 0.5)
+                .unwrap();
         })
     });
 }

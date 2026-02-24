@@ -70,9 +70,7 @@ pub fn estimate_probability_two_random_records_match(
     };
     let select_exprs: Vec<Expr> = needed_cols.iter().map(|&c| col(c)).collect();
 
-    let slim = collected
-        .lazy()
-        .select(select_exprs);
+    let slim = collected.lazy().select(select_exprs);
     let left = slim.clone().select([all().name().suffix("_l")]);
     let right = slim.select([all().name().suffix("_r")]);
 

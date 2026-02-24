@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 fn generate_pairs(n: usize) -> (Vec<String>, Vec<String>) {
     let left: Vec<String> = (0..n).map(|i| format!("name_{i}")).collect();

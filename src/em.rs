@@ -108,16 +108,16 @@ pub fn expectation_maximisation(
         let null_tables = build_null_tables(&comparisons);
 
         // E-step: compute match probability for each agreement pattern.
-        let match_probs = e_step(
-            &gamma_columns,
-            &bf_tables,
-            &comparisons,
-            current_lambda,
-        )?;
+        let match_probs = e_step(&gamma_columns, &bf_tables, &comparisons, current_lambda)?;
 
         // M-step: update parameters.
-        let (new_comparisons, new_lambda, max_change) =
-            m_step(&gamma_columns, &counts, &match_probs, &comparisons, &null_tables)?;
+        let (new_comparisons, new_lambda, max_change) = m_step(
+            &gamma_columns,
+            &counts,
+            &match_probs,
+            &comparisons,
+            &null_tables,
+        )?;
 
         comparisons = new_comparisons;
         current_lambda = new_lambda;
@@ -300,8 +300,16 @@ fn m_step(
                 }
 
                 let idx = (level.comparison_vector_value + 1) as usize;
-                let lm = if idx < table_size { level_match[idx] } else { 0.0 };
-                let lnm = if idx < table_size { level_non_match[idx] } else { 0.0 };
+                let lm = if idx < table_size {
+                    level_match[idx]
+                } else {
+                    0.0
+                };
+                let lnm = if idx < table_size {
+                    level_non_match[idx]
+                } else {
+                    0.0
+                };
 
                 if !level.fix_m_probability {
                     let new_m = if total_match_weight > 0.0 {

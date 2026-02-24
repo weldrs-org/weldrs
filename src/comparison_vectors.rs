@@ -110,9 +110,15 @@ mod tests {
             vec![Some(1i8), Some(0i8), Some(1i8)]
         );
         // Smith==Smith(1), Jones==Jones(1), Brown!=White(0)
-        assert_eq!(get_gammas("gamma_surname"), vec![Some(1i8), Some(1i8), Some(0i8)]);
+        assert_eq!(
+            get_gammas("gamma_surname"),
+            vec![Some(1i8), Some(1i8), Some(0i8)]
+        );
         // London==London(1), Paris!=Rome(0), Berlin==Berlin(1)
-        assert_eq!(get_gammas("gamma_city"), vec![Some(1i8), Some(0i8), Some(1i8)]);
+        assert_eq!(
+            get_gammas("gamma_city"),
+            vec![Some(1i8), Some(0i8), Some(1i8)]
+        );
     }
 
     #[test]
