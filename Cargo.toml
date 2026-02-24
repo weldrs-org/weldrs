@@ -1,13 +1,13 @@
 [package]
 name = "weldrs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
-description = "A Rust implementation of Splink-style probabilistic record linkage"
+description = "A Rust implementation of Splink- or fastLink-style probabilistic record linkage"
 license = "MIT"
 repository = "https://github.com/weldrs-org/weldrs"
 authors = ["Paul Stey"]
 readme = "README.md"
-keywords = ["record-linkage", "data-matching", "deduplication", "probabilistic", "splink"]
+keywords = ["record-linkage", "entity-resolution", "fastlink", "fellegi-sunter", "data-matching", "deduplication", "probabilistic", "splink"]
 categories = ["algorithms", "science"]
 
 [lib]
