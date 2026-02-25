@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/weldrs-org/weldrs"
 authors = ["Paul Stey"]
 readme = "README.md"
-keywords = ["record-linkage", "entity-resolution", "fastlink", "fellegi-sunter", "data-matching", "deduplication", "probabilistic", "splink"]
+keywords = ["record-linkage", "entity-resolution", "fastlink", "deduplication", "splink"]
 categories = ["algorithms", "science"]
 
 [lib]
