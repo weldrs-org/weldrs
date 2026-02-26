@@ -10,7 +10,7 @@ use crate::blocking::{self, BlockingRule};
 use crate::clustering;
 use crate::comparison_vectors;
 use crate::em;
-use crate::error::Result;
+use crate::error::{Result, WeldrsError};
 use crate::estimate_lambda;
 use crate::estimate_u;
 use crate::explain;
@@ -24,6 +24,26 @@ use crate::settings::Settings;
 pub struct Linker {
     /// The model configuration and trained parameters.
     pub settings: Settings,
+}
+
+fn lazy_row_count(lf: &LazyFrame) -> Result<usize> {
+    let row_count = lf
+        .clone()
+        .select([len().alias("__n_rows")])
+        .collect()
+        .map_err(|e| WeldrsError::Training(format!("Failed to count candidate pairs: {e}")))?;
+    let series = row_count
+        .column("__n_rows")
+        .map_err(|e| WeldrsError::Training(format!("Missing row-count column: {e}")))?;
+    let cast = series
+        .cast(&DataType::UInt64)
+        .map_err(|e| WeldrsError::Training(format!("Row-count cast failed: {e}")))?;
+    let n = cast
+        .u64()
+        .map_err(|e| WeldrsError::Training(format!("Row-count type error: {e}")))?
+        .get(0)
+        .ok_or_else(|| WeldrsError::Training("Row-count query returned no rows".into()))?;
+    usize::try_from(n).map_err(|_| WeldrsError::Training("Row count exceeds usize".into()))
 }
 
 impl Linker {
@@ -138,6 +158,19 @@ impl Linker {
         df: &LazyFrame,
         threshold_match_weight: Option<f64>,
     ) -> Result<LazyFrame> {
+        self.predict_with_mode(df, threshold_match_weight, predict::PredictMode::Lazy)
+    }
+
+    /// Score record pairs using the trained model with a selectable execution strategy.
+    ///
+    /// `mode=Auto` chooses an implementation based on candidate-pair volume and
+    /// number of comparisons.
+    pub fn predict_with_mode(
+        &self,
+        df: &LazyFrame,
+        threshold_match_weight: Option<f64>,
+        mode: predict::PredictMode,
+    ) -> Result<LazyFrame> {
         let blocked = blocking::generate_blocked_pairs(
             df,
             &self.settings.blocking_rules,
@@ -145,21 +178,48 @@ impl Linker {
             &self.settings.unique_id_column,
         )?;
 
+        let effective_mode = if mode == predict::PredictMode::Auto {
+            let n_pairs = lazy_row_count(&blocked)?;
+            predict::resolve_predict_mode(mode, n_pairs, self.settings.comparisons.len())
+        } else {
+            mode
+        };
+
         let cv = comparison_vectors::compute_comparison_vectors(
             blocked,
             &self.settings.comparisons,
             &self.settings.gamma_prefix,
         )?;
 
-        predict::predict(
-            cv,
-            &self.settings.comparisons,
-            self.settings.probability_two_random_records_match,
-            &self.settings.gamma_prefix,
-            &self.settings.bf_prefix,
-            None,
-            threshold_match_weight,
-        )
+        match effective_mode {
+            predict::PredictMode::Lazy => predict::predict(
+                cv,
+                &self.settings.comparisons,
+                self.settings.probability_two_random_records_match,
+                &self.settings.gamma_prefix,
+                &self.settings.bf_prefix,
+                None,
+                threshold_match_weight,
+            ),
+            predict::PredictMode::Direct => {
+                let cv_df = cv.collect().map_err(|e| {
+                    WeldrsError::Training(format!(
+                        "Failed to materialize comparison vectors for direct scoring: {e}"
+                    ))
+                })?;
+                let scored = predict::predict_direct(
+                    &cv_df,
+                    &self.settings.comparisons,
+                    self.settings.probability_two_random_records_match,
+                    &self.settings.gamma_prefix,
+                    &self.settings.bf_prefix,
+                    None,
+                    threshold_match_weight,
+                )?;
+                Ok(scored.lazy())
+            }
+            predict::PredictMode::Auto => unreachable!("Auto mode should be resolved above"),
+        }
     }
 
     // ── Clustering ────────────────────────────────────────────────────
@@ -258,6 +318,7 @@ impl Linker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::predict::PredictMode;
     use crate::settings::LinkType;
     use crate::test_helpers;
 
@@ -334,5 +395,63 @@ mod tests {
         assert!(col_names.contains(&"match_weight"));
         assert!(col_names.contains(&"match_probability"));
         assert!(predictions.height() > 0);
+    }
+
+    #[test]
+    fn test_predict_with_mode_direct_matches_lazy() {
+        let mut linker = make_linker();
+        let df = test_helpers::make_test_df().lazy();
+
+        linker.estimate_u_using_random_sampling(&df, 100).unwrap();
+
+        let lazy = linker
+            .predict_with_mode(&df, None, PredictMode::Lazy)
+            .unwrap()
+            .collect()
+            .unwrap();
+        let direct = linker
+            .predict_with_mode(&df, None, PredictMode::Direct)
+            .unwrap()
+            .collect()
+            .unwrap();
+
+        let lazy_probs: Vec<f64> = lazy
+            .column("match_probability")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        let direct_probs: Vec<f64> = direct
+            .column("match_probability")
+            .unwrap()
+            .f64()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+
+        assert_eq!(lazy_probs.len(), direct_probs.len());
+        for (lp, dp) in lazy_probs.iter().zip(direct_probs.iter()) {
+            assert!((lp - dp).abs() < 1e-10, "Mismatch: {lp} vs {dp}");
+        }
+    }
+
+    #[test]
+    fn test_predict_with_mode_auto() {
+        let mut linker = make_linker();
+        let df = test_helpers::make_test_df().lazy();
+
+        linker.estimate_u_using_random_sampling(&df, 100).unwrap();
+
+        let predictions = linker
+            .predict_with_mode(&df, None, PredictMode::Auto)
+            .unwrap()
+            .collect()
+            .unwrap();
+        assert!(predictions.height() > 0);
+        assert!(predictions.column("match_weight").is_ok());
+        assert!(predictions.column("match_probability").is_ok());
     }
 }

@@ -103,6 +103,7 @@ pub mod prelude {
         ComparisonSummary, LevelSummary, ModelSummary, WaterfallChart, WaterfallStep,
     };
     pub use crate::linker::Linker;
+    pub use crate::predict::PredictMode;
     pub use crate::settings::{LinkType, Settings, TrainingSettings};
     #[cfg(feature = "visualize")]
     pub use crate::visualize::ChartOptions;

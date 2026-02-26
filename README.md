@@ -187,6 +187,11 @@ let predictions = linker.predict(&lf, None)?.collect()?;
 
 // Score with a minimum match-weight threshold
 let predictions = linker.predict(&lf, Some(0.0))?.collect()?;
+
+// Use the direct scorer (or PredictMode::Auto) for smaller candidate sets
+let predictions = linker
+    .predict_with_mode(&lf, None, PredictMode::Direct)?
+    .collect()?;
 ```
 
 The resulting DataFrame includes `match_weight`, `match_probability`, and individual `bf_*` columns for each comparison.
