@@ -16,8 +16,8 @@
 //! rather than invoking [`expectation_maximization`] directly.
 //!
 //! See also: [`estimate_u`](crate::estimate_u) for u-probability
-//! initialisation and [`estimate_lambda`](crate::estimate_lambda) for
-//! lambda initialisation.
+//! initialization and [`estimate_lambda`](crate::estimate_lambda) for
+//! lambda initialization.
 
 use polars::prelude::*;
 use rayon::prelude::*;
