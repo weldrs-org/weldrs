@@ -87,7 +87,7 @@
 //! | [`clustering`] | Connected-components clustering via union-find |
 //! | [`explain`] | Waterfall breakdowns and model summaries |
 //! | [`probability`] | Probability / Bayes factor / match weight conversions |
-//! | [`string_distance`] | Optimised Levenshtein, Jaro, and Jaro-Winkler implementations |
+//! | [`string_distance`] | Optimized Levenshtein, Jaro, and Jaro-Winkler implementations |
 //! | [`linker`] | High-level orchestrator that ties the pipeline together |
 //!
 //! # Feature flags
