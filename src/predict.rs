@@ -3,6 +3,21 @@
 //! Applies the trained model to comparison vectors, producing a match weight
 //! (log2 of the combined Bayes factor) and a match probability for every
 //! candidate pair.
+//!
+//! This is **step 4** of the pipeline — after [`em`](crate::em) training
+//! has estimated the model parameters and
+//! [`comparison_vectors`](crate::comparison_vectors) has computed gamma
+//! columns.
+//!
+//! Two execution strategies are available via [`PredictMode`]:
+//!
+//! - [`Lazy`](PredictMode::Lazy) — builds a Polars lazy expression graph
+//!   (best for large candidate sets).
+//! - [`Direct`](PredictMode::Direct) — eager row-wise scoring via BF
+//!   lookup tables (best for small candidate sets where Polars planning
+//!   overhead dominates).
+//! - [`Auto`](PredictMode::Auto) — picks based on candidate-pair volume
+//!   and model size.
 
 use polars::prelude::*;
 
@@ -17,9 +32,16 @@ use crate::probability;
 /// `Direct` uses table lookups and eager row-wise scoring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PredictMode {
+    /// Automatically choose between `Lazy` and `Direct` based on the
+    /// number of candidate pairs and comparisons. This is the default.
     #[default]
     Auto,
+    /// Use Polars lazy expressions to build a query plan. Best for large
+    /// candidate sets (> ~50K pairs) where Polars can optimise the plan.
     Lazy,
+    /// Use eager row-wise scoring via precomputed Bayes factor lookup
+    /// tables. Best for small candidate sets where Polars planning
+    /// overhead would dominate.
     Direct,
 }
 
@@ -80,6 +102,11 @@ fn extract_gamma_columns_i8(
 ///
 /// Optionally filters to pairs above a threshold (on match probability or
 /// match weight).
+///
+/// # Errors
+///
+/// Returns an error if building the Bayes factor expression fails for
+/// any comparison.
 pub fn predict(
     comparison_vectors: LazyFrame,
     comparisons: &[Comparison],
@@ -137,6 +164,10 @@ pub fn predict(
 ///
 /// Adds `match_weight`, `match_probability`, and individual `bf_{name}` columns.
 /// Optionally filters to pairs above a threshold.
+///
+/// # Errors
+///
+/// Returns an error if gamma columns are missing or cannot be cast to `i8`.
 pub fn predict_direct(
     comparison_vectors: &DataFrame,
     comparisons: &[Comparison],

@@ -4,6 +4,13 @@
 //! match. It is estimated by applying high-confidence blocking rules to
 //! identify "certain" matches and dividing by the total number of possible
 //! pairs, adjusted by an assumed recall.
+//!
+//! Most users call this via
+//! [`Linker::estimate_probability_two_random_records_match`](crate::linker::Linker::estimate_probability_two_random_records_match)
+//! rather than invoking the free function directly.
+//!
+//! See also: [`blocking`](crate::blocking) for how blocking rules are
+//! constructed.
 
 use polars::prelude::*;
 
@@ -17,6 +24,13 @@ use crate::settings::LinkType;
 /// Applies high-confidence blocking rules (e.g., exact match on multiple
 /// columns) to identify "certain" matches, then divides by the total number
 /// of possible pairs, adjusted by the estimated recall.
+///
+/// # Errors
+///
+/// Returns [`WeldrsError::Config`] if
+/// `deterministic_rules` is empty. Returns
+/// [`WeldrsError::Training`] if the
+/// DataFrame has fewer than 2 records.
 pub fn estimate_probability_two_random_records_match(
     df: &LazyFrame,
     deterministic_rules: &[BlockingRule],

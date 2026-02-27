@@ -4,6 +4,21 @@
 //! decides whether two values "agree") with trained m/u probabilities.
 //! Levels are stacked inside a [`Comparison`](crate::comparison::Comparison)
 //! and evaluated top-to-bottom; the first matching level wins.
+//!
+//! # Available predicates
+//!
+//! | Variant | Meaning |
+//! |---------|---------|
+//! | [`ComparisonPredicate::NullCheck`] | Both values are null |
+//! | [`ComparisonPredicate::ExactMatch`] | Values are exactly equal |
+//! | [`ComparisonPredicate::LevenshteinDistance`] | Edit distance ≤ threshold |
+//! | [`ComparisonPredicate::JaroWinklerSimilarity`] | Jaro-Winkler ≥ threshold |
+//! | [`ComparisonPredicate::JaroSimilarity`] | Jaro ≥ threshold |
+//! | [`ComparisonPredicate::Else`] | Catch-all for remaining pairs |
+//!
+//! Most users will not construct [`ComparisonLevel`] values directly — use
+//! [`ComparisonBuilder`](crate::comparison::ComparisonBuilder) instead, which
+//! handles level ordering and default m/u assignment automatically.
 
 use polars::prelude::*;
 use rayon::prelude::*;
@@ -101,15 +116,36 @@ fn par_pairwise_string_predicate(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ComparisonPredicate {
     /// Both left and right values are null.
-    NullCheck { col: String },
+    NullCheck {
+        /// Column name to check for nulls.
+        col: String,
+    },
     /// Left and right values are exactly equal.
-    ExactMatch { col: String },
+    ExactMatch {
+        /// Column name to compare.
+        col: String,
+    },
     /// Levenshtein edit distance is at most `threshold`.
-    LevenshteinDistance { col: String, threshold: u32 },
+    LevenshteinDistance {
+        /// Column name to compare.
+        col: String,
+        /// Maximum edit distance.
+        threshold: u32,
+    },
     /// Jaro-Winkler similarity is at least `threshold`.
-    JaroWinklerSimilarity { col: String, threshold: f64 },
+    JaroWinklerSimilarity {
+        /// Column name to compare.
+        col: String,
+        /// Minimum similarity score (0.0–1.0).
+        threshold: f64,
+    },
     /// Jaro similarity is at least `threshold`.
-    JaroSimilarity { col: String, threshold: f64 },
+    JaroSimilarity {
+        /// Column name to compare.
+        col: String,
+        /// Minimum similarity score (0.0–1.0).
+        threshold: f64,
+    },
     /// Catch-all level for all remaining pairs.
     Else,
 }

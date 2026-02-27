@@ -70,6 +70,40 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Modules
+//!
+//! | Module | Role |
+//! |--------|------|
+//! | [`settings`] | Model configuration: link type, comparisons, blocking rules, training params |
+//! | [`comparison`] | Comparison definitions and the [`ComparisonBuilder`](comparison::ComparisonBuilder) |
+//! | [`comparison_level`] | Individual comparison predicates (exact, Jaro-Winkler, Levenshtein, etc.) |
+//! | [`blocking`] | Blocking rules and candidate-pair generation (step 1 of inference) |
+//! | [`comparison_vectors`] | Gamma column computation from blocked pairs (step 2 of inference) |
+//! | [`estimate_lambda`] | Lambda estimation from deterministic rules |
+//! | [`estimate_u`] | U-probability estimation via random sampling |
+//! | [`em`] | Expectation-Maximization training of m/u parameters |
+//! | [`predict`] | Fellegi-Sunter scoring with match weights and probabilities |
+//! | [`clustering`] | Connected-components clustering via union-find |
+//! | [`explain`] | Waterfall breakdowns and model summaries |
+//! | [`probability`] | Probability / Bayes factor / match weight conversions |
+//! | [`string_distance`] | Optimised Levenshtein, Jaro, and Jaro-Winkler implementations |
+//! | [`linker`] | High-level orchestrator that ties the pipeline together |
+//!
+//! # Feature flags
+//!
+//! | Flag | Default | Description |
+//! |------|---------|-------------|
+//! | `simd` | off | Use SIMD-accelerated Levenshtein via [`triple_accel`](https://crates.io/crates/triple_accel) |
+//! | `visualize` | off | Enable SVG chart rendering (waterfall, match weights, histograms) via [`plotters`](https://crates.io/crates/plotters) |
+//!
+//! # Error handling
+//!
+//! All fallible operations return [`Result<T>`](error::Result), which is an
+//! alias for `std::result::Result<T, WeldrsError>`. See [`error::WeldrsError`]
+//! for the error variants.
+
+#![warn(missing_docs)]
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

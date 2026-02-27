@@ -3,6 +3,37 @@
 //! [`Settings`] holds the complete configuration for a weldrs model: link type,
 //! comparisons, blocking rules, trained parameters, and column naming
 //! conventions. Use [`Settings::builder`] to construct one.
+//!
+//! Settings are serializable via serde, so a trained model can be saved to
+//! JSON and loaded later via
+//! [`Linker::save_settings_json`](crate::linker::Linker::save_settings_json) /
+//! [`Linker::load_settings_json`](crate::linker::Linker::load_settings_json).
+//!
+//! See [`comparison`](crate::comparison) for building comparisons and
+//! [`blocking`](crate::blocking) for blocking rules.
+//!
+//! # Example
+//!
+//! ```
+//! use weldrs::comparison::ComparisonBuilder;
+//! use weldrs::blocking::BlockingRule;
+//! use weldrs::settings::{LinkType, Settings};
+//!
+//! let settings = Settings::builder(LinkType::DedupeOnly)
+//!     .comparison(
+//!         ComparisonBuilder::new("first_name")
+//!             .null_level()
+//!             .exact_match_level()
+//!             .else_level()
+//!             .build(),
+//!     )
+//!     .blocking_rule(BlockingRule::on(&["surname"]))
+//!     .build()
+//!     .unwrap();
+//!
+//! assert_eq!(settings.comparisons.len(), 1);
+//! assert_eq!(settings.blocking_rules.len(), 1);
+//! ```
 
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +106,27 @@ pub struct Settings {
 
 impl Settings {
     /// Start building a [`Settings`] value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use weldrs::comparison::ComparisonBuilder;
+    /// use weldrs::blocking::BlockingRule;
+    /// use weldrs::settings::{LinkType, Settings};
+    ///
+    /// let settings = Settings::builder(LinkType::DedupeOnly)
+    ///     .comparison(
+    ///         ComparisonBuilder::new("name")
+    ///             .null_level()
+    ///             .exact_match_level()
+    ///             .else_level()
+    ///             .build(),
+    ///     )
+    ///     .blocking_rule(BlockingRule::on(&["name"]))
+    ///     .probability_two_random_records_match(0.01)
+    ///     .build()
+    ///     .unwrap();
+    /// ```
     pub fn builder(link_type: LinkType) -> SettingsBuilder {
         SettingsBuilder::new(link_type)
     }
@@ -158,6 +210,11 @@ impl SettingsBuilder {
     }
 
     /// Build the [`Settings`]. Returns an error if no comparisons were added.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeldrsError::Config`] if
+    /// no comparisons have been added.
     pub fn build(self) -> Result<Settings> {
         if self.comparisons.is_empty() {
             return Err(WeldrsError::Config(

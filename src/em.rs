@@ -3,6 +3,21 @@
 //! The EM algorithm iteratively estimates m-probabilities, u-probabilities,
 //! and lambda from agreement-pattern counts derived from blocked record
 //! pairs.
+//!
+//! The **E-step** computes, for each unique agreement pattern, the
+//! posterior probability that the pair is a true match given the current
+//! parameters. The **M-step** re-estimates m, u, and lambda from these
+//! posterior weights. Iterations continue until the largest parameter
+//! change falls below the convergence threshold set in
+//! [`TrainingSettings`].
+//!
+//! Most users call this via
+//! [`Linker::estimate_parameters_using_em`](crate::linker::Linker::estimate_parameters_using_em)
+//! rather than invoking [`expectation_maximization`] directly.
+//!
+//! See also: [`estimate_u`](crate::estimate_u) for u-probability
+//! initialisation and [`estimate_lambda`](crate::estimate_lambda) for
+//! lambda initialisation.
 
 use polars::prelude::*;
 use rayon::prelude::*;
@@ -33,6 +48,11 @@ pub struct EmIterationResult {
 /// m/u parameters updated (they overlap with the training blocking rule).
 ///
 /// Returns the iteration history (the last entry contains the final parameters).
+///
+/// # Errors
+///
+/// Returns an error if gamma columns are missing from the comparison
+/// vectors or if Polars group-by / aggregation fails.
 pub fn expectation_maximization(
     comparison_vectors: &LazyFrame,
     mut comparisons: Vec<Comparison>,

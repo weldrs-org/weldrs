@@ -3,6 +3,10 @@
 //! Random record pairs are overwhelmingly non-matches, so the frequency of
 //! each comparison level among random pairs is a good estimate of its
 //! u-probability.
+//!
+//! Most users call this via
+//! [`Linker::estimate_u_using_random_sampling`](crate::linker::Linker::estimate_u_using_random_sampling)
+//! rather than invoking the free function directly.
 
 use polars::prelude::*;
 
@@ -14,6 +18,11 @@ use crate::error::{Result, WeldrsError};
 ///
 /// Since random pairs are overwhelmingly non-matches, the frequency of each
 /// comparison level among random pairs is a good estimate of its u-probability.
+///
+/// # Errors
+///
+/// Returns [`WeldrsError::Training`]
+/// if the DataFrame has fewer than 2 records.
 pub fn estimate_u_using_random_sampling(
     df: &LazyFrame,
     comparisons: &mut [Comparison],

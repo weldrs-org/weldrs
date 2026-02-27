@@ -3,8 +3,39 @@
 //! These utility functions convert between the three representations used
 //! throughout the Fellegi-Sunter model: raw probabilities, Bayes factors
 //! (likelihood ratios), and match weights (log2 of Bayes factors).
+//!
+//! # Conversions
+//!
+//! ```text
+//! probability ──prob_to_bayes_factor──▶ Bayes factor ──log2──▶ match weight
+//!             ◀─bayes_factor_to_prob──                ◀─2^──
+//! ```
+//!
+//! # Example
+//!
+//! ```
+//! use weldrs::probability::*;
+//!
+//! let prob = 0.8;
+//! let bf = prob_to_bayes_factor(prob);  // 4.0
+//! let mw = prob_to_match_weight(prob);  // 2.0
+//!
+//! // Round-trip back to probability
+//! let restored = bayes_factor_to_prob(match_weight_to_bayes_factor(mw));
+//! assert!((restored - prob).abs() < 1e-10);
+//! ```
 
 /// Convert a probability to a Bayes factor: p / (1 - p).
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::probability::prob_to_bayes_factor;
+///
+/// assert!((prob_to_bayes_factor(0.5) - 1.0).abs() < 1e-10);
+/// assert!((prob_to_bayes_factor(0.8) - 4.0).abs() < 1e-10);
+/// assert!(prob_to_bayes_factor(1.0).is_infinite());
+/// ```
 pub fn prob_to_bayes_factor(prob: f64) -> f64 {
     if prob == 1.0 {
         f64::INFINITY
@@ -14,11 +45,28 @@ pub fn prob_to_bayes_factor(prob: f64) -> f64 {
 }
 
 /// Convert a Bayes factor back to a probability: bf / (1 + bf).
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::probability::bayes_factor_to_prob;
+///
+/// assert!((bayes_factor_to_prob(1.0) - 0.5).abs() < 1e-10);
+/// assert!((bayes_factor_to_prob(4.0) - 0.8).abs() < 1e-10);
+/// ```
 pub fn bayes_factor_to_prob(bf: f64) -> f64 {
     bf / (1.0 + bf)
 }
 
 /// Convert a probability to a match weight (log2 of the Bayes factor).
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::probability::prob_to_match_weight;
+///
+/// assert!((prob_to_match_weight(0.8) - 2.0).abs() < 1e-10);
+/// ```
 pub fn prob_to_match_weight(prob: f64) -> f64 {
     prob_to_bayes_factor(prob).log2()
 }

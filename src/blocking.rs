@@ -3,6 +3,29 @@
 //! Blocking restricts the comparison space by only generating record pairs
 //! that agree on one or more "blocking" columns (an equi-join). Without
 //! blocking every pair would be compared, which is O(n^2).
+//!
+//! This module covers **step 1** of the inference pipeline — producing
+//! candidate pairs before [`comparison_vectors`](crate::comparison_vectors)
+//! evaluates them and [`predict`](crate::predict) scores them.
+//!
+//! Blocking rules are also used during training: see
+//! [`Settings::builder`](crate::settings::Settings::builder) for attaching
+//! prediction-time rules and
+//! [`Linker::estimate_parameters_using_em`](crate::linker::Linker::estimate_parameters_using_em)
+//! for the training-time blocking rule.
+//!
+//! # Example
+//!
+//! ```
+//! use weldrs::blocking::BlockingRule;
+//!
+//! // Block on surname — only pairs sharing a surname are compared.
+//! let rule = BlockingRule::on(&["surname"]);
+//!
+//! // Block on city AND state (multi-column equi-join).
+//! let strict = BlockingRule::on(&["city", "state"])
+//!     .with_description("city + state block");
+//! ```
 
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -22,6 +45,15 @@ pub struct BlockingRule {
 
 impl BlockingRule {
     /// Create a blocking rule that joins on the given columns.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use weldrs::blocking::BlockingRule;
+    ///
+    /// let rule = BlockingRule::on(&["surname"]);
+    /// assert_eq!(rule.columns, vec!["surname"]);
+    /// ```
     pub fn on(columns: &[&str]) -> Self {
         Self {
             columns: columns.iter().map(|s| s.to_string()).collect(),
@@ -45,6 +77,10 @@ fn suffix_columns(df: &LazyFrame, suffix: &str) -> LazyFrame {
 ///
 /// Returns a `LazyFrame` with columns suffixed `_l` and `_r`, plus a
 /// `match_key` column indicating which blocking rule produced each pair.
+///
+/// # Errors
+///
+/// Returns an error if a Polars join or schema operation fails.
 pub fn generate_blocked_pairs(
     df: &LazyFrame,
     blocking_rules: &[BlockingRule],

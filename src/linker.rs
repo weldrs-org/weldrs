@@ -48,6 +48,30 @@ fn lazy_row_count(lf: &LazyFrame) -> Result<usize> {
 
 impl Linker {
     /// Create a new linker with the given settings.
+    ///
+    /// # Errors
+    ///
+    /// Currently infallible, but returns `Result` for forward compatibility.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use weldrs::comparison::ComparisonBuilder;
+    /// use weldrs::prelude::*;
+    ///
+    /// let settings = Settings::builder(LinkType::DedupeOnly)
+    ///     .comparison(
+    ///         ComparisonBuilder::new("name")
+    ///             .null_level()
+    ///             .exact_match_level()
+    ///             .else_level()
+    ///             .build(),
+    ///     )
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// let linker = Linker::new(settings).unwrap();
+    /// ```
     pub fn new(settings: Settings) -> Result<Self> {
         Ok(Self { settings })
     }
@@ -56,6 +80,32 @@ impl Linker {
 
     /// Estimate lambda (probability two random records match) using
     /// deterministic rules.
+    ///
+    /// The deterministic rules should be high-confidence blocking rules
+    /// (e.g., exact match on multiple columns) that identify "certain"
+    /// matches. The `recall` parameter (0.0–1.0) adjusts for the
+    /// assumed recall of these rules.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeldrsError::Config`] if
+    /// `deterministic_rules` is empty. Returns
+    /// [`WeldrsError::Training`] if the
+    /// DataFrame has fewer than 2 records.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let mut linker: Linker = todo!();
+    /// # use polars::prelude::IntoLazy;
+    /// # let lf = polars::prelude::DataFrame::empty().lazy();
+    /// linker.estimate_probability_two_random_records_match(
+    ///     &lf,
+    ///     &[BlockingRule::on(&["first_name", "surname"])],
+    ///     1.0, // assume 100% recall
+    /// ).unwrap();
+    /// ```
     pub fn estimate_probability_two_random_records_match(
         &mut self,
         df: &LazyFrame,
@@ -74,6 +124,25 @@ impl Linker {
     }
 
     /// Estimate u-probabilities from random record pairs.
+    ///
+    /// Samples up to `max_pairs` random record pairs and computes the
+    /// frequency of each comparison level. Since random pairs are
+    /// overwhelmingly non-matches, these frequencies estimate u-probabilities.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeldrsError::Training`]
+    /// if the DataFrame has fewer than 2 records.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let mut linker: Linker = todo!();
+    /// # use polars::prelude::IntoLazy;
+    /// # let lf = polars::prelude::DataFrame::empty().lazy();
+    /// linker.estimate_u_using_random_sampling(&lf, 1_000_000).unwrap();
+    /// ```
     pub fn estimate_u_using_random_sampling(
         &mut self,
         df: &LazyFrame,
@@ -92,6 +161,25 @@ impl Linker {
     ///
     /// Comparisons whose input columns overlap with the blocking rule columns
     /// are excluded from EM estimation (they always agree under that block).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if blocking, comparison-vector computation, or EM
+    /// fails (typically due to Polars engine errors or missing columns).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let mut linker: Linker = todo!();
+    /// # use polars::prelude::IntoLazy;
+    /// # let lf = polars::prelude::DataFrame::empty().lazy();
+    /// // Train using pairs that share a surname
+    /// linker.estimate_parameters_using_em(
+    ///     &lf,
+    ///     &BlockingRule::on(&["surname"]),
+    /// ).unwrap();
+    /// ```
     pub fn estimate_parameters_using_em(
         &mut self,
         df: &LazyFrame,
@@ -153,6 +241,27 @@ impl Linker {
     /// Generates blocked pairs, computes comparison vectors, and applies the
     /// Fellegi-Sunter scoring model. Returns a `LazyFrame` with
     /// `match_weight` and `match_probability` columns.
+    ///
+    /// Pass `threshold_match_weight` to filter out low-scoring pairs early.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if blocking or scoring fails (e.g., missing columns
+    /// or Polars engine errors).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let linker: Linker = todo!();
+    /// # use polars::prelude::IntoLazy;
+    /// # let lf = polars::prelude::DataFrame::empty().lazy();
+    /// // Score all pairs (no threshold)
+    /// let predictions = linker.predict(&lf, None).unwrap().collect().unwrap();
+    ///
+    /// // Score only pairs with match weight >= 0.0
+    /// let high = linker.predict(&lf, Some(0.0)).unwrap().collect().unwrap();
+    /// ```
     pub fn predict(
         &self,
         df: &LazyFrame,
@@ -165,6 +274,25 @@ impl Linker {
     ///
     /// `mode=Auto` chooses an implementation based on candidate-pair volume and
     /// number of comparisons.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if blocking or scoring fails (e.g., missing columns
+    /// or Polars engine errors).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let linker: Linker = todo!();
+    /// # use polars::prelude::IntoLazy;
+    /// # let lf = polars::prelude::DataFrame::empty().lazy();
+    /// let predictions = linker
+    ///     .predict_with_mode(&lf, None, PredictMode::Direct)
+    ///     .unwrap()
+    ///     .collect()
+    ///     .unwrap();
+    /// ```
     pub fn predict_with_mode(
         &self,
         df: &LazyFrame,
@@ -225,6 +353,24 @@ impl Linker {
     // ── Clustering ────────────────────────────────────────────────────
 
     /// Cluster pairwise predictions into groups of linked records.
+    ///
+    /// Only pairs with `match_probability >= threshold` are considered edges.
+    /// Returns a DataFrame with `[unique_id, cluster_id]` columns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the predictions DataFrame is missing required
+    /// columns (`unique_id_l`, `unique_id_r`, `match_probability`).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let linker: Linker = todo!();
+    /// # let predictions = polars::prelude::DataFrame::empty();
+    /// let clusters = linker.cluster_pairwise_predictions(&predictions, 0.5).unwrap();
+    /// println!("{clusters}");
+    /// ```
     pub fn cluster_pairwise_predictions(
         &self,
         predictions: &DataFrame,
@@ -238,6 +384,27 @@ impl Linker {
     // ── Explanation ────────────────────────────────────────────────────
 
     /// Explain why a single record pair received its score.
+    ///
+    /// Returns a [`WaterfallChart`](crate::explain::WaterfallChart)
+    /// showing the prior and each comparison's Bayes factor contribution.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `row_index` is out of bounds or if required
+    /// columns are missing from the predictions DataFrame.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let linker: Linker = todo!();
+    /// # let predictions = polars::prelude::DataFrame::empty();
+    /// let chart = linker.explain_pair(&predictions, 0).unwrap();
+    /// println!("Final probability: {}", chart.final_match_probability);
+    /// for step in &chart.steps {
+    ///     println!("  {} → weight {:+.2}", step.column_name, step.log2_bayes_factor);
+    /// }
+    /// ```
     pub fn explain_pair(
         &self,
         predictions: &DataFrame,
@@ -255,6 +422,16 @@ impl Linker {
     }
 
     /// Explain why multiple record pairs received their scores.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let linker: Linker = todo!();
+    /// # let predictions = polars::prelude::DataFrame::empty();
+    /// let charts = linker.explain_pairs(&predictions, &[0, 1, 2]).unwrap();
+    /// assert_eq!(charts.len(), 3);
+    /// ```
     pub fn explain_pairs(
         &self,
         predictions: &DataFrame,
@@ -272,6 +449,18 @@ impl Linker {
     }
 
     /// Produce a structured summary of the trained model parameters.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let linker: Linker = todo!();
+    /// let summary = linker.model_summary();
+    /// println!("Lambda: {}", summary.probability_two_random_records_match);
+    /// for comp in &summary.comparisons {
+    ///     println!("Comparison: {}", comp.output_column_name);
+    /// }
+    /// ```
     pub fn model_summary(&self) -> explain::ModelSummary {
         explain::model_summary(&self.settings)
     }
@@ -279,11 +468,38 @@ impl Linker {
     // ── Serialization ─────────────────────────────────────────────────
 
     /// Serialize the current settings (including trained parameters) to JSON.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeldrsError::Serde`] if
+    /// serialization fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// # let linker: Linker = todo!();
+    /// let json = linker.save_settings_json().unwrap();
+    /// std::fs::write("model.json", &json).unwrap();
+    /// ```
     pub fn save_settings_json(&self) -> Result<String> {
         serde_json::to_string_pretty(&self.settings).map_err(Into::into)
     }
 
     /// Load a linker from previously saved JSON settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeldrsError::Serde`] if
+    /// the JSON is malformed or does not match the expected schema.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use weldrs::prelude::*;
+    /// let json = std::fs::read_to_string("model.json").unwrap();
+    /// let linker = Linker::load_settings_json(&json).unwrap();
+    /// ```
     pub fn load_settings_json(json: &str) -> Result<Self> {
         let settings: Settings = serde_json::from_str(json)?;
         Self::new(settings)
