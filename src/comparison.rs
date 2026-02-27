@@ -2,6 +2,32 @@
 //!
 //! A [`Comparison`] groups multiple [`ComparisonLevel`]s that target the same
 //! input column(s). Use [`ComparisonBuilder`] for ergonomic construction.
+//!
+//! Comparisons are the core of the Fellegi-Sunter model — each one describes
+//! how a particular column (or set of columns) should be compared between two
+//! records. Levels are evaluated top-to-bottom; the first matching level
+//! determines the gamma value for a given record pair.
+//!
+//! See [`comparison_level`](crate::comparison_level) for the available
+//! predicates and [`settings`](crate::settings) for how comparisons are
+//! assembled into a complete model configuration.
+//!
+//! # Example
+//!
+//! ```
+//! use weldrs::comparison::ComparisonBuilder;
+//!
+//! let comparison = ComparisonBuilder::new("first_name")
+//!     .description("Compare first names with fuzzy matching")
+//!     .null_level()
+//!     .exact_match_level()
+//!     .jaro_winkler_level(0.88)
+//!     .else_level()
+//!     .build();
+//!
+//! assert_eq!(comparison.output_column_name, "first_name");
+//! assert_eq!(comparison.comparison_levels.len(), 4);
+//! ```
 
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -134,6 +160,21 @@ pub struct ComparisonBuilder {
 
 impl ComparisonBuilder {
     /// Start building a comparison for the given column.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use weldrs::comparison::ComparisonBuilder;
+    ///
+    /// let comparison = ComparisonBuilder::new("first_name")
+    ///     .null_level()
+    ///     .exact_match_level()
+    ///     .jaro_winkler_level(0.88)
+    ///     .else_level()
+    ///     .build();
+    ///
+    /// assert_eq!(comparison.comparison_levels.len(), 4);
+    /// ```
     pub fn new(column: &str) -> Self {
         Self {
             output_column_name: column.to_string(),

@@ -9,10 +9,38 @@
 //!   person-name data.
 //! - **SIMD Levenshtein** (behind the `simd` feature): delegates to
 //!   `triple_accel` for hardware-accelerated edit distance.
+//!
+//! # Examples
+//!
+//! ```
+//! use weldrs::string_distance::*;
+//!
+//! // Bounded Levenshtein — returns bool, not the actual distance
+//! assert!(levenshtein_within("kitten", "sitten", 1));
+//! assert!(!levenshtein_within("kitten", "sitting", 1));
+//!
+//! // Jaro similarity (0.0 – 1.0)
+//! let j = jaro_similarity("martha", "marhta");
+//! assert!(j > 0.94);
+//!
+//! // Jaro-Winkler similarity (adds a prefix bonus)
+//! let jw = jaro_winkler_similarity("martha", "marhta");
+//! assert!(jw > j);
+//! ```
 
 /// Check whether the Levenshtein distance between `a` and `b` is at most
 /// `max_dist`, using a diagonal-band DP that terminates early when the
 /// minimum possible distance exceeds the threshold.
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::string_distance::levenshtein_within;
+///
+/// assert!(levenshtein_within("kitten", "sitten", 1));  // distance = 1
+/// assert!(!levenshtein_within("kitten", "sitting", 2)); // distance = 3
+/// assert!(levenshtein_within("", "", 0));
+/// ```
 pub fn levenshtein_within(a: &str, b: &str, max_dist: u32) -> bool {
     #[cfg(feature = "simd")]
     {
@@ -162,6 +190,18 @@ fn levenshtein_within_scalar(a: &str, b: &str, max_dist: u32) -> bool {
 }
 
 /// Jaro similarity with stack-allocated flags for short ASCII strings.
+///
+/// Returns a value between 0.0 (no similarity) and 1.0 (identical).
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::string_distance::jaro_similarity;
+///
+/// assert!((jaro_similarity("martha", "marhta") - 0.9444).abs() < 0.001);
+/// assert_eq!(jaro_similarity("hello", "hello"), 1.0);
+/// assert_eq!(jaro_similarity("", ""), 1.0);
+/// ```
 pub fn jaro_similarity(a: &str, b: &str) -> f64 {
     if a.is_empty() && b.is_empty() {
         return 1.0;
@@ -183,6 +223,19 @@ pub fn jaro_similarity(a: &str, b: &str) -> f64 {
 }
 
 /// Jaro-Winkler similarity with stack-allocated flags for short ASCII strings.
+///
+/// Extends Jaro similarity with a prefix bonus (up to 4 characters,
+/// weight 0.1). Returns a value between 0.0 and 1.0.
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::string_distance::jaro_winkler_similarity;
+///
+/// let jw = jaro_winkler_similarity("martha", "marhta");
+/// assert!(jw > 0.96);
+/// assert_eq!(jaro_winkler_similarity("hello", "hello"), 1.0);
+/// ```
 pub fn jaro_winkler_similarity(a: &str, b: &str) -> f64 {
     if a.is_empty() && b.is_empty() {
         return 1.0;

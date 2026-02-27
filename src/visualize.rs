@@ -3,7 +3,25 @@
 //! Provides SVG-based visualizations of waterfall charts, match weight
 //! charts, and weight distribution histograms using the `plotters` crate.
 //!
-//! This module is feature-gated behind `visualize`.
+//! This module is feature-gated behind the `visualize` feature flag.
+//! Enable it in your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! weldrs = { version = "0.1", features = ["visualize"] }
+//! ```
+//!
+//! Three chart types are available:
+//!
+//! - [`waterfall_chart_svg`] / [`waterfall_chart_to_file`] — step-by-step
+//!   breakdown of a single pair's score (from [`explain`](crate::explain)).
+//! - [`match_weights_chart_svg`] / [`match_weights_chart_to_file`] — bar
+//!   chart of all trained comparison-level match weights.
+//! - [`weight_distribution_chart_svg`] / [`weight_distribution_chart_to_file`]
+//!   — histogram of match weights across all scored pairs.
+//!
+//! All rendering functions accept a [`ChartOptions`] struct for
+//! customizing dimensions, colors, and font sizes.
 
 use std::path::Path;
 

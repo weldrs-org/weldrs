@@ -3,6 +3,28 @@
 //! Pairwise predictions above a threshold are treated as edges in a graph.
 //! This module groups records into clusters using a union-find (disjoint set)
 //! data structure with path compression and union by rank.
+//!
+//! This is **step 5** of the pipeline — after [`predict`](crate::predict)
+//! scores candidate pairs, this module groups them into clusters of linked
+//! records.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use polars::prelude::*;
+//! use weldrs::clustering::cluster_pairwise_predictions;
+//!
+//! // `predictions` is a DataFrame with unique_id_l, unique_id_r,
+//! // and match_probability columns (output of predict).
+//! # let predictions = DataFrame::empty();
+//! let clusters = cluster_pairwise_predictions(
+//!     &predictions,
+//!     0.5,             // threshold — only pairs at or above this probability
+//!     "unique_id_l",
+//!     "unique_id_r",
+//! ).unwrap();
+//! // Returns a DataFrame with [unique_id, cluster_id] columns.
+//! ```
 
 use polars::prelude::*;
 use rustc_hash::FxHashMap;
@@ -73,6 +95,27 @@ impl UnionFind {
 /// `match_probability` column.
 ///
 /// Returns a DataFrame with columns `[unique_id, cluster_id]`.
+///
+/// # Errors
+///
+/// Returns an error if the predictions DataFrame is missing required
+/// columns (`match_probability`, or the specified unique ID columns),
+/// or if the unique ID columns cannot be cast to `i64`.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use polars::prelude::*;
+/// use weldrs::clustering::cluster_pairwise_predictions;
+///
+/// # let predictions = DataFrame::empty();
+/// let clusters = cluster_pairwise_predictions(
+///     &predictions,
+///     0.5,
+///     "unique_id_l",
+///     "unique_id_r",
+/// ).unwrap();
+/// ```
 pub fn cluster_pairwise_predictions(
     predictions: &DataFrame,
     threshold: f64,

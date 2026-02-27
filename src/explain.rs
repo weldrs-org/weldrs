@@ -2,6 +2,15 @@
 //!
 //! Provides structured breakdowns of how each comparison contributed to a
 //! record pair's match score, plus a summary view of the entire trained model.
+//!
+//! After [`predict`](crate::predict) scores candidate pairs, use
+//! [`explain_pair`] to produce a step-by-step [`WaterfallChart`] showing
+//! the prior and each comparison's Bayes factor contribution. Use
+//! [`model_summary`] for a high-level [`ModelSummary`] of the trained
+//! parameters.
+//!
+//! For SVG rendering of these structures, see
+//! [`visualize`](crate::visualize) (requires the `visualize` feature).
 
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -166,6 +175,12 @@ fn cell_to_f64(df: &DataFrame, col_name: &str, row: usize) -> Result<f64> {
 // ── Public functions ─────────────────────────────────────────────────
 
 /// Produce a waterfall breakdown for a single record pair.
+///
+/// # Errors
+///
+/// Returns an error if `row_index` is out of bounds or if required
+/// columns (gamma, BF, unique ID, match_weight, match_probability)
+/// are missing.
 pub fn explain_pair(
     predictions: &DataFrame,
     row_index: usize,
@@ -278,6 +293,11 @@ pub fn explain_pair(
 }
 
 /// Produce waterfall breakdowns for multiple record pairs.
+///
+/// # Errors
+///
+/// Returns an error if any `row_index` is out of bounds or if required
+/// columns are missing.
 pub fn explain_pairs(
     predictions: &DataFrame,
     row_indices: &[usize],

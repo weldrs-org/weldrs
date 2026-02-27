@@ -3,6 +3,11 @@
 //! For each blocked record pair, this module evaluates every
 //! [`Comparison`] and appends a gamma column
 //! whose integer value indicates which comparison level matched.
+//!
+//! This is **step 2** of the inference pipeline — after
+//! [`blocking`](crate::blocking) generates candidate pairs and before
+//! [`predict`](crate::predict) scores them. The resulting gamma columns
+//! are also consumed by [`em`](crate::em) during training.
 
 use polars::prelude::*;
 
@@ -13,6 +18,10 @@ use crate::error::Result;
 ///
 /// For each [`Comparison`], appends a `gamma_{name}` column to the DataFrame,
 /// where each value indicates which comparison level matched.
+///
+/// # Errors
+///
+/// Returns an error if any comparison's gamma expression fails to build.
 pub fn compute_comparison_vectors(
     blocked_pairs: LazyFrame,
     comparisons: &[Comparison],
