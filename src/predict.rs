@@ -37,7 +37,7 @@ pub enum PredictMode {
     #[default]
     Auto,
     /// Use Polars lazy expressions to build a query plan. Best for large
-    /// candidate sets (> ~50K pairs) where Polars can optimise the plan.
+    /// candidate sets (> ~50K pairs) where Polars can optimize the plan.
     Lazy,
     /// Use eager row-wise scoring via precomputed Bayes factor lookup
     /// tables. Best for small candidate sets where Polars planning
