@@ -19,7 +19,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     common::print_df_summary(&df, "Generated dataset");
 
     let lf = df.clone().lazy();
-    let blocking_rules = [BlockingRule::on(&["last_name"]), BlockingRule::on(&["city"])];
+    let blocking_rules = [
+        BlockingRule::on(&["last_name"]),
+        BlockingRule::on(&["city"]),
+    ];
 
     // ── Run 1: Exact-only comparisons ────────────────────────────────
     println!("\n--- Run 1: Exact-only comparisons ---");
