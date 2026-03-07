@@ -41,6 +41,13 @@ use crate::error::{Result, WeldrsError};
 /// Includes a heuristic fallback: if unique pairs exceed 50% of total
 /// non-null rows, falls back to direct per-row computation to avoid
 /// HashMap overhead when values are highly unique.
+///
+/// # Null handling
+///
+/// Rows where either value is null are tracked using `u32::MAX` as a
+/// sentinel index in `row_pair_idx`. This limits the maximum number of
+/// distinct value pairs to `u32::MAX - 1` (≈4 billion), which is far
+/// beyond practical working set sizes after blocking.
 fn par_pairwise_string_predicate(
     s: &Column,
     col_l_key: &PlSmallStr,
@@ -185,17 +192,17 @@ impl ComparisonPredicate {
                 let col_r = format!("{c}_r");
                 let col_l_key = PlSmallStr::from(col_l.as_str());
                 let col_r_key = PlSmallStr::from(col_r.as_str());
-                Ok(as_struct(vec![col(&col_l), col(&col_r)])
-                    .map(
-                        move |s: Column| {
-                            par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
-                                crate::string_distance::levenshtein_within(l, r, threshold)
-                            })
-                            .map(Some)
-                        },
-                        GetOutput::from_type(DataType::Boolean),
-                    )
-                    .with_fmt("levenshtein_distance"))
+                Ok(as_struct(vec![col(&col_l), col(&col_r)]).map_with_fmt_str(
+                    move |s: Column| {
+                        par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
+                            crate::string_distance::levenshtein_within(l, r, threshold)
+                        })
+                    },
+                    |_schema, _field| {
+                        Ok(Field::new("levenshtein_distance".into(), DataType::Boolean))
+                    },
+                    "levenshtein_distance",
+                ))
             }
             Self::JaroWinklerSimilarity { col: c, threshold } => {
                 let threshold = *threshold;
@@ -203,17 +210,20 @@ impl ComparisonPredicate {
                 let col_r = format!("{c}_r");
                 let col_l_key = PlSmallStr::from(col_l.as_str());
                 let col_r_key = PlSmallStr::from(col_r.as_str());
-                Ok(as_struct(vec![col(&col_l), col(&col_r)])
-                    .map(
-                        move |s: Column| {
-                            par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
-                                crate::string_distance::jaro_winkler_similarity(l, r) >= threshold
-                            })
-                            .map(Some)
-                        },
-                        GetOutput::from_type(DataType::Boolean),
-                    )
-                    .with_fmt("jaro_winkler_similarity"))
+                Ok(as_struct(vec![col(&col_l), col(&col_r)]).map_with_fmt_str(
+                    move |s: Column| {
+                        par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
+                            crate::string_distance::jaro_winkler_similarity(l, r) >= threshold
+                        })
+                    },
+                    |_schema, _field| {
+                        Ok(Field::new(
+                            "jaro_winkler_similarity".into(),
+                            DataType::Boolean,
+                        ))
+                    },
+                    "jaro_winkler_similarity",
+                ))
             }
             Self::JaroSimilarity { col: c, threshold } => {
                 let threshold = *threshold;
@@ -221,17 +231,15 @@ impl ComparisonPredicate {
                 let col_r = format!("{c}_r");
                 let col_l_key = PlSmallStr::from(col_l.as_str());
                 let col_r_key = PlSmallStr::from(col_r.as_str());
-                Ok(as_struct(vec![col(&col_l), col(&col_r)])
-                    .map(
-                        move |s: Column| {
-                            par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
-                                crate::string_distance::jaro_similarity(l, r) >= threshold
-                            })
-                            .map(Some)
-                        },
-                        GetOutput::from_type(DataType::Boolean),
-                    )
-                    .with_fmt("jaro_similarity"))
+                Ok(as_struct(vec![col(&col_l), col(&col_r)]).map_with_fmt_str(
+                    move |s: Column| {
+                        par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, |l, r| {
+                            crate::string_distance::jaro_similarity(l, r) >= threshold
+                        })
+                    },
+                    |_schema, _field| Ok(Field::new("jaro_similarity".into(), DataType::Boolean)),
+                    "jaro_similarity",
+                ))
             }
             Self::Else => Err(WeldrsError::Config(
                 "Else predicate has no expression; it is the catch-all".into(),

@@ -29,7 +29,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .exact_match_level()
                 .jaro_winkler_level(0.88)
                 .else_level()
-                .build(),
+                .build()?,
         )
         .comparison(
             ComparisonBuilder::new("last_name")
@@ -37,7 +37,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .exact_match_level()
                 .jaro_winkler_level(0.92)
                 .else_level()
-                .build(),
+                .build()?,
         )
         .comparison(
             ComparisonBuilder::new("city")
@@ -45,7 +45,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .exact_match_level()
                 .levenshtein_level(2)
                 .else_level()
-                .build(),
+                .build()?,
         )
         .blocking_rule(BlockingRule::on(&["last_name"]))
         .blocking_rule(BlockingRule::on(&["city"]))

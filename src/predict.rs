@@ -135,7 +135,7 @@ pub fn predict(
     // Compute combined match weight = log2(prior_odds) + sum(log2(BF_i)).
     let mut match_weight_expr = lit(log2_prior);
     for bf_col in &bf_col_names {
-        match_weight_expr = match_weight_expr + col(bf_col.as_str()).log(2.0);
+        match_weight_expr = match_weight_expr + col(bf_col.as_str()).log(lit(2.0));
     }
     lf = lf.with_column(match_weight_expr.alias("match_weight"));
 
@@ -169,7 +169,7 @@ pub fn predict(
 ///
 /// Returns an error if gamma columns are missing or cannot be cast to `i8`.
 pub fn predict_direct(
-    comparison_vectors: &DataFrame,
+    comparison_vectors: DataFrame,
     comparisons: &[Comparison],
     lambda: f64,
     gamma_prefix: &str,
@@ -183,7 +183,7 @@ pub fn predict_direct(
     let n_comps = comparisons.len();
 
     // Extract gamma columns as i8 arrays (casting from wider integer types if needed).
-    let gamma_columns = extract_gamma_columns_i8(comparison_vectors, comparisons, gamma_prefix)?;
+    let gamma_columns = extract_gamma_columns_i8(&comparison_vectors, comparisons, gamma_prefix)?;
 
     if threshold_match_probability.is_some() || threshold_match_weight.is_some() {
         // Threshold path: single-pass row scoring, only materialising kept rows.
@@ -267,7 +267,7 @@ pub fn predict_direct(
         .map(|&mw| match_probability_from_log2_odds(mw))
         .collect();
 
-    let mut df = comparison_vectors.clone();
+    let mut df = comparison_vectors;
     for (comp_idx, comp) in comparisons.iter().enumerate() {
         let name = comp.bf_column_name(bf_prefix);
         df.with_column(Column::new(name.into(), &bf_values[comp_idx]))
@@ -291,7 +291,8 @@ mod tests {
             .null_level()
             .exact_match_level()
             .else_level()
-            .build();
+            .build()
+            .unwrap();
 
         // Set known m/u values
         for level in &mut comp.comparison_levels {
@@ -429,7 +430,7 @@ mod tests {
         .unwrap();
 
         let direct_result =
-            predict_direct(&cv_eager, &[comp], 0.1, "gamma_", "bf_", None, None).unwrap();
+            predict_direct(cv_eager.clone(), &[comp], 0.1, "gamma_", "bf_", None, None).unwrap();
 
         // Both paths should produce the same match probabilities (within f64 tolerance).
         let lazy_probs: Vec<f64> = lazy_result
@@ -464,7 +465,7 @@ mod tests {
         let cv_eager = cv_df(&[1, 0, 0]).collect().unwrap();
 
         let result =
-            predict_direct(&cv_eager, &[comp], 0.0001, "gamma_", "bf_", Some(0.5), None).unwrap();
+            predict_direct(cv_eager, &[comp], 0.0001, "gamma_", "bf_", Some(0.5), None).unwrap();
 
         let probs = result.column("match_probability").unwrap().f64().unwrap();
         for p in probs.into_iter().flatten() {

@@ -23,7 +23,8 @@ fn make_synthetic_patterns(
                 .exact_match_level()
                 .jaro_winkler_level(0.88)
                 .else_level()
-                .build(),
+                .build()
+                .unwrap(),
         );
     }
 
@@ -31,7 +32,7 @@ fn make_synthetic_patterns(
     let counts: Vec<u32> = (0..n_patterns).map(|i| (i as u32 % 100) + 1).collect();
     columns.push(Column::new("__count".into(), &counts));
 
-    let df = DataFrame::new(columns).unwrap();
+    let df = DataFrame::new(n_patterns, columns).unwrap();
     (df.lazy(), comparisons)
 }
 

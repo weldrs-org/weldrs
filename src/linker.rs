@@ -65,7 +65,8 @@ impl Linker {
     ///             .null_level()
     ///             .exact_match_level()
     ///             .else_level()
-    ///             .build(),
+    ///             .build()
+    ///             .unwrap(),
     ///     )
     ///     .build()
     ///     .unwrap();
@@ -336,7 +337,7 @@ impl Linker {
                     ))
                 })?;
                 let scored = predict::predict_direct(
-                    &cv_df,
+                    cv_df,
                     &self.settings.comparisons,
                     self.settings.probability_two_random_records_match,
                     &self.settings.gamma_prefix,

@@ -30,6 +30,7 @@ pub fn exact_match_comparison(col_name: &str) -> crate::comparison::Comparison {
         .exact_match_level()
         .else_level()
         .build()
+        .expect("test helper: exact_match_comparison should always be valid")
 }
 
 /// Build a fuzzy comparison: null + exact + jaro-winkler + else.
@@ -40,6 +41,7 @@ pub fn fuzzy_comparison(col_name: &str, jw_threshold: f64) -> crate::comparison:
         .jaro_winkler_level(jw_threshold)
         .else_level()
         .build()
+        .expect("test helper: fuzzy_comparison should always be valid")
 }
 
 /// Build a small paired DataFrame with `_l`/`_r` columns for testing expressions.

@@ -99,14 +99,16 @@ fn bench_pipeline_10k(c: &mut Criterion) {
                         .exact_match_level()
                         .jaro_winkler_level(0.88)
                         .else_level()
-                        .build(),
+                        .build()
+                        .unwrap(),
                 )
                 .comparison(
                     ComparisonBuilder::new("surname")
                         .null_level()
                         .exact_match_level()
                         .else_level()
-                        .build(),
+                        .build()
+                        .unwrap(),
                 )
                 .blocking_rule(BlockingRule::on(&["surname"]))
                 .build()
@@ -148,14 +150,16 @@ fn bench_fuzzy_comparison_realistic(c: &mut Criterion) {
                         .exact_match_level()
                         .jaro_winkler_level(0.88)
                         .else_level()
-                        .build(),
+                        .build()
+                        .unwrap(),
                 )
                 .comparison(
                     ComparisonBuilder::new("surname")
                         .null_level()
                         .exact_match_level()
                         .else_level()
-                        .build(),
+                        .build()
+                        .unwrap(),
                 )
                 .blocking_rule(BlockingRule::on(&["surname"]))
                 .build()

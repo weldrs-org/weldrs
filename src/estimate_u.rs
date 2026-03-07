@@ -72,8 +72,11 @@ pub fn estimate_u_using_random_sampling(
         .sample_n_literal(sample_size, false, true, Some(42))
         .map_err(|e| WeldrsError::Training(format!("Sampling failed: {e}")))?;
 
-    let left = sampled.clone().lazy().select([all().name().suffix("_l")]);
-    let right = sampled.lazy().select([all().name().suffix("_r")]);
+    let left = sampled
+        .clone()
+        .lazy()
+        .select([col("*").name().suffix("_l")]);
+    let right = sampled.lazy().select([col("*").name().suffix("_r")]);
 
     // Cross-join and keep uid_l < uid_r.
     let pairs = left
