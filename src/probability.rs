@@ -53,9 +53,14 @@ pub fn prob_to_bayes_factor(prob: f64) -> f64 {
 ///
 /// assert!((bayes_factor_to_prob(1.0) - 0.5).abs() < 1e-10);
 /// assert!((bayes_factor_to_prob(4.0) - 0.8).abs() < 1e-10);
+/// assert_eq!(bayes_factor_to_prob(f64::INFINITY), 1.0);
 /// ```
 pub fn bayes_factor_to_prob(bf: f64) -> f64 {
-    bf / (1.0 + bf)
+    if bf.is_infinite() {
+        1.0
+    } else {
+        bf / (1.0 + bf)
+    }
 }
 
 /// Convert a probability to a match weight (log2 of the Bayes factor).
@@ -88,12 +93,18 @@ fn interpolate(start: f64, end: f64, num_elements: usize) -> Vec<f64> {
 /// Default m-probability values for `num_levels` non-null levels.
 /// Highest level gets 0.95, the rest share 0.05 equally.
 pub fn default_m_values(num_levels: usize) -> Vec<f64> {
-    let proportion_exact_match = 0.95;
-    let remainder = 1.0 - proportion_exact_match;
-    let split_remainder = remainder / (num_levels - 1) as f64;
-    let mut vals = vec![split_remainder; num_levels - 1];
-    vals.push(proportion_exact_match);
-    vals
+    match num_levels {
+        0 => vec![],
+        1 => vec![1.0],
+        _ => {
+            let proportion_exact_match = 0.95;
+            let remainder = 1.0 - proportion_exact_match;
+            let split_remainder = remainder / (num_levels - 1) as f64;
+            let mut vals = vec![split_remainder; num_levels - 1];
+            vals.push(proportion_exact_match);
+            vals
+        }
+    }
 }
 
 /// Default u-probability values for `num_levels` non-null levels.
@@ -141,6 +152,19 @@ mod tests {
     }
 
     #[test]
+    fn test_bayes_factor_to_prob_infinity() {
+        assert_eq!(bayes_factor_to_prob(f64::INFINITY), 1.0);
+    }
+
+    #[test]
+    fn test_prob_bayes_factor_roundtrip_at_one() {
+        let bf = prob_to_bayes_factor(1.0);
+        assert!(bf.is_infinite());
+        let back = bayes_factor_to_prob(bf);
+        assert!((1.0 - back).abs() < 1e-10);
+    }
+
+    #[test]
     fn test_match_weight_roundtrip() {
         let prob = 0.8;
         let weight = prob_to_match_weight(prob);
@@ -155,6 +179,19 @@ mod tests {
         assert_eq!(m.len(), 3);
         assert!((m.iter().sum::<f64>() - 1.0).abs() < 1e-10);
         assert!((m[2] - 0.95).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_default_m_values_one_level() {
+        let m = default_m_values(1);
+        assert_eq!(m.len(), 1);
+        assert!((m[0] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_default_m_values_zero_levels() {
+        let m = default_m_values(0);
+        assert!(m.is_empty());
     }
 
     #[test]

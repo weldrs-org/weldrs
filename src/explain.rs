@@ -137,11 +137,17 @@ fn cell_to_i32(df: &DataFrame, col_name: &str, row: usize) -> Result<i32> {
         AnyValue::Int8(v) => Ok(v as i32),
         AnyValue::Int16(v) => Ok(v as i32),
         AnyValue::Int32(v) => Ok(v),
-        AnyValue::Int64(v) => Ok(v as i32),
+        AnyValue::Int64(v) => i32::try_from(v).map_err(|_| {
+            WeldrsError::Config(format!("Value {v} in '{col_name}' row {row} overflows i32"))
+        }),
         AnyValue::UInt8(v) => Ok(v as i32),
         AnyValue::UInt16(v) => Ok(v as i32),
-        AnyValue::UInt32(v) => Ok(v as i32),
-        AnyValue::UInt64(v) => Ok(v as i32),
+        AnyValue::UInt32(v) => i32::try_from(v).map_err(|_| {
+            WeldrsError::Config(format!("Value {v} in '{col_name}' row {row} overflows i32"))
+        }),
+        AnyValue::UInt64(v) => i32::try_from(v).map_err(|_| {
+            WeldrsError::Config(format!("Value {v} in '{col_name}' row {row} overflows i32"))
+        }),
         other => Err(WeldrsError::Config(format!(
             "Expected integer in '{col_name}' row {row}, got {other:?}"
         ))),

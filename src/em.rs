@@ -119,6 +119,7 @@ pub fn expectation_maximization(
 
     let mut current_lambda = lambda;
     let mut results = Vec::new();
+    let mut converged = false;
 
     for iteration in 0..training.max_iterations {
         // Pre-compute log Bayes factor lookup tables for numerically stable E-step.
@@ -151,22 +152,20 @@ pub fn expectation_maximization(
         }
 
         if max_change < training.em_convergence {
+            converged = true;
             break;
         }
     }
 
-    // Always ensure at least one result with the final state.
-    if results.is_empty() || results.last().unwrap().comparisons.as_ptr() != comparisons.as_ptr() {
-        // If store_history was false and we didn't converge, push the final state.
-        if !training.store_history {
-            let iteration = results.len();
-            results.push(EmIterationResult {
-                iteration,
-                lambda: current_lambda,
-                max_change: f64::NAN,
-                comparisons,
-            });
-        }
+    // If store_history was false and we didn't converge, push the final state
+    // so the caller always has at least one result.
+    if !converged && !training.store_history {
+        results.push(EmIterationResult {
+            iteration: results.len(),
+            lambda: current_lambda,
+            max_change: f64::NAN,
+            comparisons,
+        });
     }
 
     Ok(results)
@@ -633,7 +632,10 @@ mod tests {
             .comparison_levels
             .iter()
             .any(|l| !l.is_null_level && !l.fix_m_probability);
-        assert!(last_name_changed, "Last name comparison should not be fixed");
+        assert!(
+            last_name_changed,
+            "Last name comparison should not be fixed"
+        );
     }
 
     #[test]
