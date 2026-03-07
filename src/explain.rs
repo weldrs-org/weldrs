@@ -137,11 +137,17 @@ fn cell_to_i32(df: &DataFrame, col_name: &str, row: usize) -> Result<i32> {
         AnyValue::Int8(v) => Ok(v as i32),
         AnyValue::Int16(v) => Ok(v as i32),
         AnyValue::Int32(v) => Ok(v),
-        AnyValue::Int64(v) => Ok(v as i32),
+        AnyValue::Int64(v) => i32::try_from(v).map_err(|_| {
+            WeldrsError::Config(format!("Value {v} in '{col_name}' row {row} overflows i32"))
+        }),
         AnyValue::UInt8(v) => Ok(v as i32),
         AnyValue::UInt16(v) => Ok(v as i32),
-        AnyValue::UInt32(v) => Ok(v as i32),
-        AnyValue::UInt64(v) => Ok(v as i32),
+        AnyValue::UInt32(v) => i32::try_from(v).map_err(|_| {
+            WeldrsError::Config(format!("Value {v} in '{col_name}' row {row} overflows i32"))
+        }),
+        AnyValue::UInt64(v) => i32::try_from(v).map_err(|_| {
+            WeldrsError::Config(format!("Value {v} in '{col_name}' row {row} overflows i32"))
+        }),
         other => Err(WeldrsError::Config(format!(
             "Expected integer in '{col_name}' row {row}, got {other:?}"
         ))),
@@ -408,7 +414,7 @@ mod tests {
             }
         }
 
-        let mut comp_sn = ComparisonBuilder::new("surname")
+        let mut comp_sn = ComparisonBuilder::new("last_name")
             .null_level()
             .exact_match_level()
             .else_level()
@@ -430,7 +436,7 @@ mod tests {
             .comparison(comp_fn)
             .comparison(comp_sn)
             .probability_two_random_records_match(0.01)
-            .blocking_rule(BlockingRule::on(&["surname"]))
+            .blocking_rule(BlockingRule::on(&["last_name"]))
             .build()
             .unwrap()
     }
@@ -441,10 +447,10 @@ mod tests {
             "unique_id_r" => [4i64, 5, 6],
             "first_name_l" => ["Alice", "Bob", "Carol"],
             "first_name_r" => ["Alice", "Xavier", "Carol"],
-            "surname_l" => ["Smith", "Jones", "Smith"],
-            "surname_r" => ["Smith", "Jones", "Brown"],
+            "last_name_l" => ["Smith", "Jones", "Smith"],
+            "last_name_r" => ["Smith", "Jones", "Brown"],
             "gamma_first_name" => [1i8, 0, 1],
-            "gamma_surname" => [1i8, 1, 0],
+            "gamma_last_name" => [1i8, 1, 0],
         )
         .unwrap();
 
@@ -470,7 +476,7 @@ mod tests {
         let summary = model_summary(&settings);
         assert_eq!(summary.comparisons.len(), 2);
         assert_eq!(summary.comparisons[0].output_column_name, "first_name");
-        assert_eq!(summary.comparisons[1].output_column_name, "surname");
+        assert_eq!(summary.comparisons[1].output_column_name, "last_name");
         // Each comparison has 3 levels (null + exact + else)
         assert_eq!(summary.comparisons[0].levels.len(), 3);
         assert_eq!(summary.comparisons[1].levels.len(), 3);
@@ -641,7 +647,7 @@ mod tests {
     fn test_waterfall_exact_match_positive() {
         let settings = make_trained_settings();
         let predictions = make_predictions(&settings);
-        // Row 0: both first_name and surname are exact matches (gamma=1)
+        // Row 0: both first_name and last_name are exact matches (gamma=1)
         let chart = explain_pair(
             &predictions,
             0,
@@ -668,7 +674,7 @@ mod tests {
     fn test_waterfall_non_match_negative() {
         let settings = make_trained_settings();
         let predictions = make_predictions(&settings);
-        // Row 2: surname is non-match (gamma=0, Smith vs Brown)
+        // Row 2: last_name is non-match (gamma=0, Smith vs Brown)
         let chart = explain_pair(
             &predictions,
             2,
@@ -680,13 +686,13 @@ mod tests {
         )
         .unwrap();
 
-        // surname step (index 2) should have negative log2 BF
-        let surname_step = &chart.steps[2];
-        assert_eq!(surname_step.column_name, "surname");
+        // last_name step (index 2) should have negative log2 BF
+        let last_name_step = &chart.steps[2];
+        assert_eq!(last_name_step.column_name, "last_name");
         assert!(
-            surname_step.log2_bayes_factor < 0.0,
+            last_name_step.log2_bayes_factor < 0.0,
             "Non-match step should have negative log2_bf, got {}",
-            surname_step.log2_bayes_factor
+            last_name_step.log2_bayes_factor
         );
     }
 
@@ -754,7 +760,7 @@ mod tests {
         )
         .unwrap();
 
-        // Row 0: first_name Alice/Alice, surname Smith/Smith
+        // Row 0: first_name Alice/Alice, last_name Smith/Smith
         let fn_step = &chart.steps[1];
         assert_eq!(fn_step.value_l.as_deref(), Some("Alice"));
         assert_eq!(fn_step.value_r.as_deref(), Some("Alice"));

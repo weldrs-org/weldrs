@@ -45,7 +45,7 @@ pub struct ChartOptions {
     pub negative_color: (u8, u8, u8),
     /// RGB color for the prior bar. Default: blue.
     pub prior_color: (u8, u8, u8),
-    /// RGB color for neutral / histogram bars. Default: grey.
+    /// RGB color for neutral / histogram bars. Default: gray.
     pub neutral_color: (u8, u8, u8),
     /// Title font size. Default: 20.
     pub title_font_size: u32,
@@ -61,7 +61,7 @@ impl Default for ChartOptions {
             positive_color: (76, 175, 80),  // green
             negative_color: (244, 67, 54),  // red
             prior_color: (33, 150, 243),    // blue
-            neutral_color: (158, 158, 158), // grey
+            neutral_color: (158, 158, 158), // gray
             title_font_size: 20,
             label_font_size: 14,
         }
@@ -517,7 +517,7 @@ mod tests {
             }
         }
 
-        let mut comp_sn = ComparisonBuilder::new("surname")
+        let mut comp_sn = ComparisonBuilder::new("last_name")
             .null_level()
             .exact_match_level()
             .else_level()
@@ -539,7 +539,7 @@ mod tests {
             .comparison(comp_fn)
             .comparison(comp_sn)
             .probability_two_random_records_match(0.01)
-            .blocking_rule(BlockingRule::on(&["surname"]))
+            .blocking_rule(BlockingRule::on(&["last_name"]))
             .build()
             .unwrap()
     }
@@ -550,10 +550,10 @@ mod tests {
             "unique_id_r" => [2i64],
             "first_name_l" => ["Alice"],
             "first_name_r" => ["Alice"],
-            "surname_l" => ["Smith"],
-            "surname_r" => ["Smith"],
+            "last_name_l" => ["Smith"],
+            "last_name_r" => ["Smith"],
             "gamma_first_name" => [1i8],
-            "gamma_surname" => [1i8],
+            "gamma_last_name" => [1i8],
         )
         .unwrap();
 

@@ -18,7 +18,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         "unique_id" => [1i64, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "first_name" => ["John", "Jane", "Bob", "Alice", "Eve",
                          "Jon", "Janet", "Robert", "Charlie", "Jane"],
-        "surname" => ["Smith", "Doe", "Williams", "Brown", "Davis",
+        "last_name" => ["Smith", "Doe", "Williams", "Brown", "Davis",
                       "Smith", "Doe", "Williams", "Wilson", "Doe"],
         "city" => ["London", "Manchester", "Bristol", "Leeds", "York",
                    "London", "Manchester", "Bristol", "Oxford", "Manchster"],
@@ -36,10 +36,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     //
     // We define three comparisons:
     //   - first_name: null check → exact match → Jaro-Winkler ≥ 0.88 → else
-    //   - surname:    null check → exact match → else
+    //   - last_name:    null check → exact match → else
     //   - city:       null check → exact match → Levenshtein ≤ 2 → else
     //
-    // Blocking rule: generate candidate pairs where surname matches exactly.
+    // Blocking rule: generate candidate pairs where last_name matches exactly.
     // This dramatically reduces the number of comparisons needed.
     let first_name_comparison = ComparisonBuilder::new("first_name")
         .null_level()
@@ -48,7 +48,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .else_level()
         .build();
 
-    let surname_comparison = ComparisonBuilder::new("surname")
+    let last_name_comparison = ComparisonBuilder::new("last_name")
         .null_level()
         .exact_match_level()
         .else_level()
@@ -63,9 +63,9 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let settings = Settings::builder(LinkType::DedupeOnly)
         .comparison(first_name_comparison)
-        .comparison(surname_comparison)
+        .comparison(last_name_comparison)
         .comparison(city_comparison)
-        .blocking_rule(BlockingRule::on(&["surname"]))
+        .blocking_rule(BlockingRule::on(&["last_name"]))
         .build()?;
 
     println!(
@@ -79,11 +79,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let lf = df.clone().lazy();
 
     // Estimate lambda: the probability that two random records are a match.
-    // Uses a deterministic rule (exact match on first_name AND surname) with
+    // Uses a deterministic rule (exact match on first_name AND last_name) with
     // an assumed recall of 1.0.
     let lambda = linker.estimate_probability_two_random_records_match(
         &lf,
-        &[BlockingRule::on(&["first_name", "surname"])],
+        &[BlockingRule::on(&["first_name", "last_name"])],
         1.0,
     )?;
     println!("Estimated lambda (P(random pair is match)): {lambda:.6}");
@@ -93,12 +93,12 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     linker.estimate_u_using_random_sampling(&lf, 200)?;
     println!("Estimated u-probabilities from random sampling");
 
-    // EM pass 1: block on surname — trains m/u for first_name and city
-    // (surname is fixed since it's always equal under this blocking rule).
-    linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))?;
-    println!("EM pass 1 complete (blocked on surname)");
+    // EM pass 1: block on last_name — trains m/u for first_name and city
+    // (last_name is fixed since it's always equal under this blocking rule).
+    linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
+    println!("EM pass 1 complete (blocked on last_name)");
 
-    // EM pass 2: block on city — trains m/u for first_name and surname
+    // EM pass 2: block on city — trains m/u for first_name and last_name
     // (city is fixed since it's always equal under this blocking rule).
     linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["city"]))?;
     println!("EM pass 2 complete (blocked on city)\n");
@@ -120,7 +120,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "unique_id_r",
             "first_name_l",
             "first_name_r",
-            "surname_l",
+            "last_name_l",
             "match_weight",
             "match_probability",
         ])?

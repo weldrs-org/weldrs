@@ -42,15 +42,15 @@ mod tests {
     #[test]
     fn test_gamma_columns_added() {
         let comp1 = test_helpers::exact_match_comparison("first_name");
-        let comp2 = test_helpers::exact_match_comparison("surname");
+        let comp2 = test_helpers::exact_match_comparison("last_name");
 
         let df = df!(
             "unique_id_l" => [1i64],
             "unique_id_r" => [2i64],
             "first_name_l" => ["Alice"],
             "first_name_r" => ["Bob"],
-            "surname_l" => ["Smith"],
-            "surname_r" => ["Smith"],
+            "last_name_l" => ["Smith"],
+            "last_name_r" => ["Smith"],
         )
         .unwrap()
         .lazy();
@@ -66,13 +66,13 @@ mod tests {
             .map(|s| s.as_str())
             .collect();
         assert!(col_names.contains(&"gamma_first_name"));
-        assert!(col_names.contains(&"gamma_surname"));
+        assert!(col_names.contains(&"gamma_last_name"));
     }
 
     #[test]
     fn test_comparison_vectors_multiple_comparisons() {
         let comp1 = test_helpers::exact_match_comparison("first_name");
-        let comp2 = test_helpers::exact_match_comparison("surname");
+        let comp2 = test_helpers::exact_match_comparison("last_name");
         let comp3 = test_helpers::exact_match_comparison("city");
 
         let df = df!(
@@ -80,8 +80,8 @@ mod tests {
             "unique_id_r" => [4i64, 5, 6],
             "first_name_l" => ["Alice", "Bob", "Carol"],
             "first_name_r" => ["Alice", "Charlie", "Carol"],
-            "surname_l" => ["Smith", "Jones", "Brown"],
-            "surname_r" => ["Smith", "Jones", "White"],
+            "last_name_l" => ["Smith", "Jones", "Brown"],
+            "last_name_r" => ["Smith", "Jones", "White"],
             "city_l" => ["London", "Paris", "Berlin"],
             "city_r" => ["London", "Rome", "Berlin"],
         )
@@ -100,7 +100,7 @@ mod tests {
             .map(|s| s.as_str())
             .collect();
         assert!(col_names.contains(&"gamma_first_name"));
-        assert!(col_names.contains(&"gamma_surname"));
+        assert!(col_names.contains(&"gamma_last_name"));
         assert!(col_names.contains(&"gamma_city"));
 
         let get_gammas = |name: &str| -> Vec<Option<i8>> {
@@ -120,7 +120,7 @@ mod tests {
         );
         // Smith==Smith(1), Jones==Jones(1), Brown!=White(0)
         assert_eq!(
-            get_gammas("gamma_surname"),
+            get_gammas("gamma_last_name"),
             vec![Some(1i8), Some(1i8), Some(0i8)]
         );
         // London==London(1), Paris!=Rome(0), Berlin==Berlin(1)

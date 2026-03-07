@@ -14,7 +14,7 @@ pub fn make_test_df() -> DataFrame {
     df!(
         "unique_id" => [1i64, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "first_name" => ["John", "Jane", "Bob", "Alice", "Eve", "Jon", "Janet", "Robert", "Charlie", "Jane"],
-        "surname" => ["Smith", "Doe", "Williams", "Brown", "Davis", "Smith", "Doe", "Williams", "Wilson", "Doe"],
+        "last_name" => ["Smith", "Doe", "Williams", "Brown", "Davis", "Smith", "Doe", "Williams", "Wilson", "Doe"],
         "city" => ["London", "Manchester", "Bristol", "Leeds", "York", "London", "Manchester", "Bristol", "Oxford", "Manchster"],
         "email" => [Some("john@example.com"), Some("jane@example.com"), Some("bob@example.com"),
                     Some("alice@example.com"), None, Some("john@example.com"), Some("janet@example.com"),
