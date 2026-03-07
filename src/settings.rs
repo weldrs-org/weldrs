@@ -27,7 +27,7 @@
 //!             .else_level()
 //!             .build(),
 //!     )
-//!     .blocking_rule(BlockingRule::on(&["surname"]))
+//!     .blocking_rule(BlockingRule::on(&["last_name"]))
 //!     .build()
 //!     .unwrap();
 //!
@@ -301,7 +301,7 @@ mod tests {
         let comp = test_helpers::fuzzy_comparison("name", 0.85);
         let settings = Settings::builder(LinkType::DedupeOnly)
             .comparison(comp)
-            .blocking_rule(BlockingRule::on(&["surname"]))
+            .blocking_rule(BlockingRule::on(&["last_name"]))
             .build()
             .unwrap();
 

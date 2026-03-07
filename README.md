@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     let df = df!(
         "unique_id"  => [1i64, 2, 3, 4],
         "first_name" => ["John", "Jane", "Jon", "Jane"],
-        "surname"    => ["Smith", "Doe", "Smith", "Doe"],
+        "last_name"    => ["Smith", "Doe", "Smith", "Doe"],
     )?;
 
     // 2. Define comparisons and build settings
@@ -42,13 +42,13 @@ fn main() -> Result<()> {
                 .build(),
         )
         .comparison(
-            ComparisonBuilder::new("surname")
+            ComparisonBuilder::new("last_name")
                 .null_level()
                 .exact_match_level()
                 .else_level()
                 .build(),
         )
-        .blocking_rule(BlockingRule::on(&["surname"]))
+        .blocking_rule(BlockingRule::on(&["last_name"]))
         .build()?;
 
     // 3. Train the model
@@ -57,11 +57,11 @@ fn main() -> Result<()> {
 
     linker.estimate_probability_two_random_records_match(
         &lf,
-        &[BlockingRule::on(&["first_name", "surname"])],
+        &[BlockingRule::on(&["first_name", "last_name"])],
         1.0,
     )?;
     linker.estimate_u_using_random_sampling(&lf, 200)?;
-    linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))?;
+    linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
 
     // 4. Predict — score all candidate pairs
     let predictions = linker.predict(&lf, None)?.collect()?;
@@ -129,7 +129,7 @@ use weldrs::prelude::*;
 let settings = Settings::builder(LinkType::DedupeOnly)
     .comparison(name_comparison)
     .comparison(city_comparison)
-    .blocking_rule(BlockingRule::on(&["surname"]))
+    .blocking_rule(BlockingRule::on(&["last_name"]))
     .blocking_rule(BlockingRule::on(&["city"]))
     .unique_id_column("record_id")                    // default: "unique_id"
     .probability_two_random_records_match(0.001)      // default: 0.0001
@@ -149,10 +149,10 @@ Blocking rules define equi-join conditions to reduce the comparison space. Witho
 use weldrs::prelude::*;
 
 // Block on a single column
-let rule = BlockingRule::on(&["surname"]);
+let rule = BlockingRule::on(&["last_name"]);
 
 // Block on multiple columns (AND condition)
-let strict_rule = BlockingRule::on(&["first_name", "surname"]);
+let strict_rule = BlockingRule::on(&["first_name", "last_name"]);
 
 // Add an optional description
 let rule = BlockingRule::on(&["city"]).with_description("Same city");
@@ -166,7 +166,7 @@ Training estimates the model parameters in three steps:
 // 1. Estimate lambda (prior match probability) from deterministic rules
 linker.estimate_probability_two_random_records_match(
     &lf,
-    &[BlockingRule::on(&["first_name", "surname"])],
+    &[BlockingRule::on(&["first_name", "last_name"])],
     1.0,  // assumed recall
 )?;
 
@@ -175,7 +175,7 @@ linker.estimate_u_using_random_sampling(&lf, 1_000)?;
 
 // 3. EM training passes — each pass fixes comparisons that overlap
 //    with the blocking rule and trains the rest
-linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))?;
+linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
 linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["city"]))?;
 ```
 

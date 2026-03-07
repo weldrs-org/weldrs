@@ -469,12 +469,12 @@ mod tests {
     use crate::comparison::ComparisonBuilder;
     use crate::settings::TrainingSettings;
 
-    /// Build hand-crafted agreement pattern counts for 2 comparisons (first_name, surname),
+    /// Build hand-crafted agreement pattern counts for 2 comparisons (first_name, last_name),
     /// each with 2 non-null levels (exact=1, else=0).
     fn make_pattern_counts() -> LazyFrame {
         df!(
             "gamma_first_name" => [1i8, 1, 0, 0],
-            "gamma_surname" => [1i8, 0, 1, 0],
+            "gamma_last_name" => [1i8, 0, 1, 0],
             "__count" => [50u32, 30, 20, 900],
         )
         .unwrap()
@@ -488,7 +488,7 @@ mod tests {
                 .exact_match_level()
                 .else_level()
                 .build(),
-            ComparisonBuilder::new("surname")
+            ComparisonBuilder::new("last_name")
                 .null_level()
                 .exact_match_level()
                 .else_level()
@@ -628,12 +628,12 @@ mod tests {
             );
         }
 
-        // surname comparison should have changed
-        let surname_changed = final_comps[1]
+        // last_name comparison should have changed
+        let last_name_changed = final_comps[1]
             .comparison_levels
             .iter()
             .any(|l| !l.is_null_level && !l.fix_m_probability);
-        assert!(surname_changed, "Surname comparison should not be fixed");
+        assert!(last_name_changed, "Last name comparison should not be fixed");
     }
 
     #[test]

@@ -19,7 +19,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     common::print_df_summary(&df, "Generated dataset");
 
     let lf = df.clone().lazy();
-    let blocking_rules = [BlockingRule::on(&["surname"]), BlockingRule::on(&["city"])];
+    let blocking_rules = [BlockingRule::on(&["last_name"]), BlockingRule::on(&["city"])];
 
     // ── Run 1: Exact-only comparisons ────────────────────────────────
     println!("\n--- Run 1: Exact-only comparisons ---");
@@ -33,7 +33,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .build(),
         )
         .comparison(
-            ComparisonBuilder::new("surname")
+            ComparisonBuilder::new("last_name")
                 .null_level()
                 .exact_match_level()
                 .else_level()
@@ -53,11 +53,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut exact_linker = Linker::new(exact_settings)?;
     exact_linker.estimate_probability_two_random_records_match(
         &lf,
-        &[BlockingRule::on(&["first_name", "surname"])],
+        &[BlockingRule::on(&["first_name", "last_name"])],
         1.0,
     )?;
     exact_linker.estimate_u_using_random_sampling(&lf, 1_000)?;
-    exact_linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))?;
+    exact_linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
     exact_linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["city"]))?;
 
     let exact_predictions = exact_linker.predict(&lf, None)?.collect()?;
@@ -84,7 +84,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .build(),
         )
         .comparison(
-            ComparisonBuilder::new("surname")
+            ComparisonBuilder::new("last_name")
                 .null_level()
                 .exact_match_level()
                 .jaro_winkler_level(0.92)
@@ -106,11 +106,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut fuzzy_linker = Linker::new(fuzzy_settings)?;
     fuzzy_linker.estimate_probability_two_random_records_match(
         &lf,
-        &[BlockingRule::on(&["first_name", "surname"])],
+        &[BlockingRule::on(&["first_name", "last_name"])],
         1.0,
     )?;
     fuzzy_linker.estimate_u_using_random_sampling(&lf, 1_000)?;
-    fuzzy_linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))?;
+    fuzzy_linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
     fuzzy_linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["city"]))?;
 
     let fuzzy_predictions = fuzzy_linker.predict(&lf, None)?.collect()?;

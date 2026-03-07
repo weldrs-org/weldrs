@@ -148,7 +148,7 @@ mod tests {
         df!(
             "unique_id" => [1i64, 2, 3, 4, 5, 6],
             "first_name" => ["John", "Jane", "Bob", "John", "Jane", "Alice"],
-            "surname" => ["Smith", "Doe", "Williams", "Smith", "Doe", "Brown"],
+            "last_name" => ["Smith", "Doe", "Williams", "Smith", "Doe", "Brown"],
         )
         .unwrap()
         .lazy()
@@ -157,8 +157,8 @@ mod tests {
     #[test]
     fn test_lambda_basic_estimate() {
         let df = test_df();
-        // Block on first_name + surname: finds exact duplicate pairs (1,4) and (2,5)
-        let rules = vec![BlockingRule::on(&["first_name", "surname"])];
+        // Block on first_name + last_name: finds exact duplicate pairs (1,4) and (2,5)
+        let rules = vec![BlockingRule::on(&["first_name", "last_name"])];
         let lambda = estimate_probability_two_random_records_match(
             &df,
             &rules,

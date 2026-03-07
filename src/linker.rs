@@ -102,7 +102,7 @@ impl Linker {
     /// # let lf = polars::prelude::DataFrame::empty().lazy();
     /// linker.estimate_probability_two_random_records_match(
     ///     &lf,
-    ///     &[BlockingRule::on(&["first_name", "surname"])],
+    ///     &[BlockingRule::on(&["first_name", "last_name"])],
     ///     1.0, // assume 100% recall
     /// ).unwrap();
     /// ```
@@ -174,10 +174,10 @@ impl Linker {
     /// # let mut linker: Linker = todo!();
     /// # use polars::prelude::IntoLazy;
     /// # let lf = polars::prelude::DataFrame::empty().lazy();
-    /// // Train using pairs that share a surname
+    /// // Train using pairs that share a last_name
     /// linker.estimate_parameters_using_em(
     ///     &lf,
-    ///     &BlockingRule::on(&["surname"]),
+    ///     &BlockingRule::on(&["last_name"]),
     /// ).unwrap();
     /// ```
     pub fn estimate_parameters_using_em(
@@ -541,8 +541,8 @@ mod tests {
     fn make_linker() -> Linker {
         let settings = crate::settings::Settings::builder(LinkType::DedupeOnly)
             .comparison(test_helpers::exact_match_comparison("first_name"))
-            .comparison(test_helpers::exact_match_comparison("surname"))
-            .blocking_rule(BlockingRule::on(&["surname"]))
+            .comparison(test_helpers::exact_match_comparison("last_name"))
+            .blocking_rule(BlockingRule::on(&["last_name"]))
             .build()
             .unwrap();
         Linker::new(settings).unwrap()
@@ -582,7 +582,7 @@ mod tests {
         linker
             .estimate_probability_two_random_records_match(
                 &df,
-                &[BlockingRule::on(&["first_name", "surname"])],
+                &[BlockingRule::on(&["first_name", "last_name"])],
                 1.0,
             )
             .unwrap();

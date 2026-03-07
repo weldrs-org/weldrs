@@ -19,8 +19,8 @@
 //! ```
 //! use weldrs::blocking::BlockingRule;
 //!
-//! // Block on surname — only pairs sharing a surname are compared.
-//! let rule = BlockingRule::on(&["surname"]);
+//! // Block on last_name — only pairs sharing a last_name are compared.
+//! let rule = BlockingRule::on(&["last_name"]);
 //!
 //! // Block on city AND state (multi-column equi-join).
 //! let strict = BlockingRule::on(&["city", "state"])
@@ -51,8 +51,8 @@ impl BlockingRule {
     /// ```
     /// use weldrs::blocking::BlockingRule;
     ///
-    /// let rule = BlockingRule::on(&["surname"]);
-    /// assert_eq!(rule.columns, vec!["surname"]);
+    /// let rule = BlockingRule::on(&["last_name"]);
+    /// assert_eq!(rule.columns, vec!["last_name"]);
     /// ```
     pub fn on(columns: &[&str]) -> Self {
         Self {

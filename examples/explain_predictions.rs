@@ -67,7 +67,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         "unique_id" => [1i64, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "first_name" => ["John", "Jane", "Bob", "Alice", "Eve",
                          "Jon", "Janet", "Robert", "Charlie", "Jane"],
-        "surname" => ["Smith", "Doe", "Williams", "Brown", "Davis",
+        "last_name" => ["Smith", "Doe", "Williams", "Brown", "Davis",
                       "Smith", "Doe", "Williams", "Wilson", "Doe"],
         "city" => ["London", "Manchester", "Bristol", "Leeds", "York",
                    "London", "Manchester", "Bristol", "Oxford", "Manchster"],
@@ -91,7 +91,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .build(),
         )
         .comparison(
-            ComparisonBuilder::new("surname")
+            ComparisonBuilder::new("last_name")
                 .null_level()
                 .exact_match_level()
                 .else_level()
@@ -105,7 +105,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .else_level()
                 .build(),
         )
-        .blocking_rule(BlockingRule::on(&["surname"]))
+        .blocking_rule(BlockingRule::on(&["last_name"]))
         .build()?;
 
     // ── Step 3: Train the model ──────────────────────────────────────
@@ -114,11 +114,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     linker.estimate_probability_two_random_records_match(
         &lf,
-        &[BlockingRule::on(&["first_name", "surname"])],
+        &[BlockingRule::on(&["first_name", "last_name"])],
         1.0,
     )?;
     linker.estimate_u_using_random_sampling(&lf, 200)?;
-    linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["surname"]))?;
+    linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
     linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["city"]))?;
     println!("Model trained.\n");
 

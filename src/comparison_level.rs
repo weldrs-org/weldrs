@@ -35,7 +35,7 @@ use crate::error::{Result, WeldrsError};
 /// 3. Maps results back to all rows via lookup
 ///
 /// This is highly effective when many rows share the same value pairs
-/// (e.g., after blocking on surname with ~50 unique names per side,
+/// (e.g., after blocking on last_name with ~50 unique names per side,
 /// 500K pairs may yield only ~2,500 unique combinations).
 ///
 /// Includes a heuristic fallback: if unique pairs exceed 50% of total

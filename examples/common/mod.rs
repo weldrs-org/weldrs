@@ -55,7 +55,7 @@ const FIRST_NAMES: &[&str] = &[
     "Stephanie",
 ];
 
-const SURNAMES: &[&str] = &[
+const LAST_NAMES: &[&str] = &[
     "Smith",
     "Johnson",
     "Williams",
@@ -195,14 +195,14 @@ fn perturb_string(s: &str, rng: &mut impl Rng) -> String {
 /// Creates `n_unique` base records by sampling from name/city/email pools,
 /// then generates duplicates (with perturbations) at the given `dup_rate`.
 ///
-/// Returns a DataFrame with columns: `unique_id` (i64), `first_name`, `surname`,
+/// Returns a DataFrame with columns: `unique_id` (i64), `first_name`, `last_name`,
 /// `city`, `email` (nullable).
 pub fn generate_person_dataset(n_unique: usize, dup_rate: f64, seed: u64) -> DataFrame {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let mut ids: Vec<i64> = Vec::new();
     let mut first_names: Vec<String> = Vec::new();
-    let mut surnames: Vec<String> = Vec::new();
+    let mut last_names: Vec<String> = Vec::new();
     let mut cities: Vec<String> = Vec::new();
     let mut emails: Vec<Option<String>> = Vec::new();
 
@@ -210,7 +210,7 @@ pub fn generate_person_dataset(n_unique: usize, dup_rate: f64, seed: u64) -> Dat
 
     for _ in 0..n_unique {
         let first = FIRST_NAMES[rng.gen_range(0..FIRST_NAMES.len())].to_string();
-        let sur = SURNAMES[rng.gen_range(0..SURNAMES.len())].to_string();
+        let sur = LAST_NAMES[rng.gen_range(0..LAST_NAMES.len())].to_string();
         let city = CITIES[rng.gen_range(0..CITIES.len())].to_string();
         let domain = EMAIL_DOMAINS[rng.gen_range(0..EMAIL_DOMAINS.len())];
         let email = format!("{}.{}@{domain}", first.to_lowercase(), sur.to_lowercase());
@@ -218,7 +218,7 @@ pub fn generate_person_dataset(n_unique: usize, dup_rate: f64, seed: u64) -> Dat
         // Add base record
         ids.push(next_id);
         first_names.push(first.clone());
-        surnames.push(sur.clone());
+        last_names.push(sur.clone());
         cities.push(city.clone());
         emails.push(Some(email.clone()));
         next_id += 1;
@@ -233,11 +233,11 @@ pub fn generate_person_dataset(n_unique: usize, dup_rate: f64, seed: u64) -> Dat
                 // Perturb first name
                 first_names.push(perturb_string(&first, &mut rng));
 
-                // Surname: usually exact, rare typo (~10%)
+                // Last name: usually exact, rare typo (~10%)
                 if rng.gen_bool(0.1) {
-                    surnames.push(perturb_string(&sur, &mut rng));
+                    last_names.push(perturb_string(&sur, &mut rng));
                 } else {
-                    surnames.push(sur.clone());
+                    last_names.push(sur.clone());
                 }
 
                 // City: perturb
@@ -278,7 +278,7 @@ pub fn generate_person_dataset(n_unique: usize, dup_rate: f64, seed: u64) -> Dat
     DataFrame::new(vec![
         Column::new(PlSmallStr::from("unique_id"), &ids),
         Column::new(PlSmallStr::from("first_name"), &first_names),
-        Column::new(PlSmallStr::from("surname"), &surnames),
+        Column::new(PlSmallStr::from("last_name"), &last_names),
         Column::new(PlSmallStr::from("city"), &cities),
         email_series.into(),
     ])
