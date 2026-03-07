@@ -14,7 +14,8 @@ fn make_trained_comparisons(n: usize) -> Vec<Comparison> {
                 .null_level()
                 .exact_match_level()
                 .else_level()
-                .build();
+                .build()
+                .unwrap();
 
             for level in &mut comp.comparison_levels {
                 if level.is_null_level {
@@ -51,7 +52,7 @@ fn make_gamma_df(n_rows: usize, comparisons: &[Comparison]) -> DataFrame {
         columns.push(Column::new(col_name.into(), &gammas));
     }
 
-    DataFrame::new(columns).unwrap()
+    DataFrame::new(n_rows, columns).unwrap()
 }
 
 fn bench_predict(c: &mut Criterion) {
@@ -79,7 +80,9 @@ fn bench_predict(c: &mut Criterion) {
         });
 
         group.bench_function("direct", |b| {
-            b.iter(|| predict_direct(&df, &comparisons, 0.05, "gamma_", "bf_", None, None).unwrap())
+            b.iter(|| {
+                predict_direct(df.clone(), &comparisons, 0.05, "gamma_", "bf_", None, None).unwrap()
+            })
         });
 
         group.finish();

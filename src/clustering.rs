@@ -185,10 +185,14 @@ pub fn cluster_pairwise_predictions(
         out_clusters.push(ids[root]);
     }
 
-    let df = DataFrame::new(vec![
-        Column::new("unique_id".into(), &out_ids),
-        Column::new("cluster_id".into(), &out_clusters),
-    ])
+    let n = out_ids.len();
+    let df = DataFrame::new(
+        n,
+        vec![
+            Column::new("unique_id".into(), &out_ids),
+            Column::new("cluster_id".into(), &out_clusters),
+        ],
+    )
     .map_err(|e| WeldrsError::Training(format!("Failed to build cluster DataFrame: {e}")))?;
 
     Ok(df)

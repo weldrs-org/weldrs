@@ -400,7 +400,8 @@ mod tests {
             .null_level()
             .exact_match_level()
             .else_level()
-            .build();
+            .build()
+            .unwrap();
         for level in &mut comp_fn.comparison_levels {
             if level.is_null_level {
                 continue;
@@ -418,7 +419,8 @@ mod tests {
             .null_level()
             .exact_match_level()
             .else_level()
-            .build();
+            .build()
+            .unwrap();
         for level in &mut comp_sn.comparison_levels {
             if level.is_null_level {
                 continue;
@@ -703,7 +705,8 @@ mod tests {
             .null_level()
             .exact_match_level()
             .else_level()
-            .build();
+            .build()
+            .unwrap();
         for level in &mut comp.comparison_levels {
             if !level.is_null_level {
                 if level.comparison_vector_value == 1 {

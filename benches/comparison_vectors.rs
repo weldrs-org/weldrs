@@ -82,7 +82,8 @@ fn bench_cv_jw_high_dedup(c: &mut Criterion) {
         .exact_match_level()
         .jaro_winkler_level(0.88)
         .else_level()
-        .build();
+        .build()
+        .unwrap();
     let gamma_expr = comp.gamma_expr("gamma_").unwrap();
 
     c.bench_function("cv_jw_high_dedup_50k", |b| {
@@ -103,7 +104,8 @@ fn bench_cv_jw_low_dedup(c: &mut Criterion) {
         .exact_match_level()
         .jaro_winkler_level(0.88)
         .else_level()
-        .build();
+        .build()
+        .unwrap();
     let gamma_expr = comp.gamma_expr("gamma_").unwrap();
 
     c.bench_function("cv_jw_low_dedup_50k", |b| {
@@ -124,7 +126,8 @@ fn bench_cv_lev_high_dedup(c: &mut Criterion) {
         .exact_match_level()
         .levenshtein_level(2)
         .else_level()
-        .build();
+        .build()
+        .unwrap();
     let gamma_expr = comp.gamma_expr("gamma_").unwrap();
 
     c.bench_function("cv_lev_high_dedup_50k", |b| {
@@ -145,7 +148,8 @@ fn bench_cv_lev_low_dedup(c: &mut Criterion) {
         .exact_match_level()
         .levenshtein_level(2)
         .else_level()
-        .build();
+        .build()
+        .unwrap();
     let gamma_expr = comp.gamma_expr("gamma_").unwrap();
 
     c.bench_function("cv_lev_low_dedup_50k", |b| {

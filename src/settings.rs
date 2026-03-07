@@ -25,7 +25,8 @@
 //!             .null_level()
 //!             .exact_match_level()
 //!             .else_level()
-//!             .build(),
+//!             .build()
+//!             .unwrap(),
 //!     )
 //!     .blocking_rule(BlockingRule::on(&["last_name"]))
 //!     .build()
@@ -120,7 +121,8 @@ impl Settings {
     ///             .null_level()
     ///             .exact_match_level()
     ///             .else_level()
-    ///             .build(),
+    ///             .build()
+    ///             .unwrap(),
     ///     )
     ///     .blocking_rule(BlockingRule::on(&["name"]))
     ///     .probability_two_random_records_match(0.01)

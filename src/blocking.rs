@@ -70,7 +70,7 @@ impl BlockingRule {
 
 /// Suffix all columns in a DataFrame, adding `_l` or `_r`.
 fn suffix_columns(df: &LazyFrame, suffix: &str) -> LazyFrame {
-    df.clone().select([all().name().suffix(suffix)])
+    df.clone().select([col("*").name().suffix(suffix)])
 }
 
 /// Generate candidate record pairs by applying blocking rules via equi-joins.
@@ -243,7 +243,7 @@ mod tests {
         let deduped = pairs
             .lazy()
             .unique(
-                Some(vec!["unique_id_l".to_string(), "unique_id_r".to_string()]),
+                Some(cols(["unique_id_l", "unique_id_r"])),
                 UniqueKeepStrategy::First,
             )
             .collect()

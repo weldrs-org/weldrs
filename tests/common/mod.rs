@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use polars::prelude::*;
 use weldrs::comparison::ComparisonBuilder;
 use weldrs::prelude::*;
@@ -23,6 +25,7 @@ pub fn exact_match_comparison(col_name: &str) -> Comparison {
         .exact_match_level()
         .else_level()
         .build()
+        .expect("test helper: exact_match_comparison should always be valid")
 }
 
 /// Build a fuzzy comparison: null + exact + jaro-winkler + else.
@@ -33,6 +36,7 @@ pub fn fuzzy_comparison(col_name: &str, jw_threshold: f64) -> Comparison {
         .jaro_winkler_level(jw_threshold)
         .else_level()
         .build()
+        .expect("test helper: fuzzy_comparison should always be valid")
 }
 
 /// Build a fully trained Linker from the test data.

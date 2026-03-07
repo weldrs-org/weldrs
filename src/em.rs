@@ -486,12 +486,14 @@ mod tests {
                 .null_level()
                 .exact_match_level()
                 .else_level()
-                .build(),
+                .build()
+                .unwrap(),
             ComparisonBuilder::new("last_name")
                 .null_level()
                 .exact_match_level()
                 .else_level()
-                .build(),
+                .build()
+                .unwrap(),
         ]
     }
 

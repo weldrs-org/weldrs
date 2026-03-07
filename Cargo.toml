@@ -1,6 +1,6 @@
 [package]
 name = "weldrs"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "A Rust implementation of Splink- or fastLink-style probabilistic record linkage"
 license = "MIT"
@@ -19,7 +19,7 @@ simd = ["triple_accel"]
 visualize = ["plotters"]
 
 [dependencies]
-polars = { version = "0.46", features = [
+polars = { version = "0.53", features = [
     "lazy",
     "cross_join",
     "round_series",
@@ -43,7 +43,7 @@ triple_accel = { version = "0.4", optional = true }
 plotters = { version = "0.3", optional = true, default-features = false, features = ["svg_backend", "line_series"] }
 
 [dev-dependencies]
-polars = { version = "0.46", features = ["csv"] }
+polars = { version = "0.53", features = ["csv"] }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]

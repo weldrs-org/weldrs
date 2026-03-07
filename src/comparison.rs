@@ -23,7 +23,8 @@
 //!     .exact_match_level()
 //!     .jaro_winkler_level(0.88)
 //!     .else_level()
-//!     .build();
+//!     .build()
+//!     .unwrap();
 //!
 //! assert_eq!(comparison.output_column_name, "first_name");
 //! assert_eq!(comparison.comparison_levels.len(), 4);
@@ -171,7 +172,8 @@ impl ComparisonBuilder {
     ///     .exact_match_level()
     ///     .jaro_winkler_level(0.88)
     ///     .else_level()
-    ///     .build();
+    ///     .build()
+    ///     .unwrap();
     ///
     /// assert_eq!(comparison.comparison_levels.len(), 4);
     /// ```
@@ -258,8 +260,59 @@ impl ComparisonBuilder {
     /// - Null level → -1
     /// - Highest match level → N-1 (where N = number of non-null levels)
     /// - Else → 0
-    pub fn build(self) -> Comparison {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WeldrsError::Config`] if:
+    /// - No levels have been added.
+    /// - There is no `else_level` (the catch-all is required to make the
+    ///   comparison exhaustive).
+    /// - The `else_level` is not the last non-null level (it must be added
+    ///   last so that higher-priority predicates are evaluated first).
+    /// - There are no non-null comparison levels (at least one is required
+    ///   for EM training to be meaningful).
+    pub fn build(self) -> Result<Comparison> {
+        use crate::error::WeldrsError;
+
+        // ── Validation ───────────────────────────────────────────────
+        if self.levels.is_empty() {
+            return Err(WeldrsError::Config(
+                "ComparisonBuilder: at least one level is required".into(),
+            ));
+        }
+
+        let has_else = self
+            .levels
+            .iter()
+            .any(|(p, _, _)| matches!(p, ComparisonPredicate::Else));
+        if !has_else {
+            return Err(WeldrsError::Config(format!(
+                "ComparisonBuilder for '{}': an else_level is required as a catch-all",
+                self.output_column_name
+            )));
+        }
+
+        // Else must be the last non-null level.
+        let last_non_null = self.levels.iter().rev().find(|(_, _, is_null)| !is_null);
+        if let Some((pred, _, _)) = last_non_null
+            && !matches!(pred, ComparisonPredicate::Else)
+        {
+            return Err(WeldrsError::Config(format!(
+                "ComparisonBuilder for '{}': else_level must be the last level added \
+                 (non-null levels after else would be unreachable)",
+                self.output_column_name
+            )));
+        }
+
         let non_null_count = self.levels.iter().filter(|(_, _, null)| !null).count();
+        if non_null_count == 0 {
+            return Err(WeldrsError::Config(format!(
+                "ComparisonBuilder for '{}': at least one non-null level is required",
+                self.output_column_name
+            )));
+        }
+
+        // ── Build ────────────────────────────────────────────────────
 
         // Assign default m/u probabilities for non-null levels.
         let m_defaults = probability::default_m_values(non_null_count);
@@ -309,19 +362,22 @@ impl ComparisonBuilder {
             });
         }
 
-        let input_columns = comparison_levels
+        // Collect input columns deterministically (sorted) so that
+        // downstream code that iterates over them produces stable results.
+        let mut input_columns: Vec<String> = comparison_levels
             .iter()
             .filter_map(|l| l.predicate.column().map(String::from))
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
+        input_columns.sort();
 
-        Comparison {
+        Ok(Comparison {
             output_column_name: self.output_column_name,
             description: self.description,
             input_columns,
             comparison_levels,
-        }
+        })
     }
 }
 
@@ -474,6 +530,61 @@ mod tests {
         assert!((bfs[1].unwrap() - 0.1 / 0.9).abs() < 1e-10);
         // null: BF = 1.0
         assert!((bfs[2].unwrap() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_builder_rejects_empty() {
+        let result = ComparisonBuilder::new("name").build();
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("at least one level"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_builder_rejects_missing_else() {
+        let result = ComparisonBuilder::new("name")
+            .null_level()
+            .exact_match_level()
+            .build();
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("else_level is required"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_builder_rejects_else_not_last() {
+        let result = ComparisonBuilder::new("name")
+            .null_level()
+            .else_level()
+            .exact_match_level()
+            .build();
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("else_level must be the last"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_builder_rejects_only_null_levels() {
+        let result = ComparisonBuilder::new("name").null_level().build();
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        // Hits both "else_level is required" and conceptually "no non-null levels"
+        assert!(msg.contains("else_level is required"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_builder_input_columns_sorted() {
+        // Even if internal ordering is nondeterministic, output should be sorted.
+        let comp = ComparisonBuilder::new("name")
+            .null_level()
+            .exact_match_level()
+            .else_level()
+            .build()
+            .unwrap();
+        let cols = &comp.input_columns;
+        let mut sorted = cols.clone();
+        sorted.sort();
+        assert_eq!(cols, &sorted);
     }
 
     #[test]

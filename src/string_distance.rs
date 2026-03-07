@@ -46,7 +46,7 @@ pub fn levenshtein_within(a: &str, b: &str, max_dist: u32) -> bool {
     {
         // triple_accel works on byte slices and returns u32 cost.
         let dist = triple_accel::levenshtein_exp(a.as_bytes(), b.as_bytes());
-        return dist <= max_dist;
+        dist <= max_dist
     }
 
     #[cfg(not(feature = "simd"))]
@@ -59,6 +59,7 @@ pub fn levenshtein_within(a: &str, b: &str, max_dist: u32) -> bool {
 ///
 /// Uses fixed-size `[u32; 129]` arrays on the stack instead of heap-allocated
 /// `Vec<u32>`, matching the pattern used by `jaro_ascii_fast()`.
+#[cfg(not(feature = "simd"))]
 fn levenshtein_within_ascii_fast(a: &[u8], b: &[u8], max_dist: u32) -> bool {
     let m = a.len();
     let n = b.len();
@@ -111,6 +112,7 @@ fn levenshtein_within_ascii_fast(a: &[u8], b: &[u8], max_dist: u32) -> bool {
 }
 
 /// Scalar bounded Levenshtein using diagonal-band DP.
+#[cfg(not(feature = "simd"))]
 fn levenshtein_within_scalar(a: &str, b: &str, max_dist: u32) -> bool {
     // Fast-path: both ASCII and under 128 bytes → stack-allocated DP rows.
     if a.is_ascii() && b.is_ascii() && a.len() <= 128 && b.len() <= 128 {

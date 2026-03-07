@@ -275,13 +275,17 @@ pub fn generate_person_dataset(n_unique: usize, dup_rate: f64, seed: u64) -> Dat
             .collect::<Vec<Option<&str>>>(),
     );
 
-    DataFrame::new(vec![
-        Column::new(PlSmallStr::from("unique_id"), &ids),
-        Column::new(PlSmallStr::from("first_name"), &first_names),
-        Column::new(PlSmallStr::from("last_name"), &last_names),
-        Column::new(PlSmallStr::from("city"), &cities),
-        email_series.into(),
-    ])
+    let n = ids.len();
+    DataFrame::new(
+        n,
+        vec![
+            Column::new(PlSmallStr::from("unique_id"), &ids),
+            Column::new(PlSmallStr::from("first_name"), &first_names),
+            Column::new(PlSmallStr::from("last_name"), &last_names),
+            Column::new(PlSmallStr::from("city"), &cities),
+            email_series.into(),
+        ],
+    )
     .unwrap()
 }
 
