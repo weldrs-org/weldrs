@@ -24,13 +24,13 @@ use crate::error::{Result, WeldrsError};
 /// Returns [`WeldrsError::Training`]
 /// if the DataFrame has fewer than 2 records.
 pub fn estimate_u_using_random_sampling(
-    df: &LazyFrame,
+    lf: &LazyFrame,
     comparisons: &mut [Comparison],
     max_pairs: usize,
     gamma_prefix: &str,
     unique_id_col: &str,
 ) -> Result<()> {
-    let collected = df
+    let collected = lf
         .clone()
         .collect()
         .map_err(|e| WeldrsError::Training(format!("Failed to collect DataFrame: {e}")))?;
@@ -162,13 +162,13 @@ mod tests {
     use crate::comparison_level::ComparisonLevel;
     use crate::test_helpers;
 
-    fn test_df() -> LazyFrame {
+    fn test_lf() -> LazyFrame {
         test_helpers::make_test_df().lazy()
     }
 
     #[test]
     fn test_u_probabilities_updated() {
-        let df = test_df();
+        let lf = test_lf();
         let mut comparisons = vec![test_helpers::exact_match_comparison("first_name")];
 
         // Store original u values
@@ -178,7 +178,7 @@ mod tests {
             .map(|l| l.u_probability)
             .collect();
 
-        estimate_u_using_random_sampling(&df, &mut comparisons, 100, "gamma_", "unique_id")
+        estimate_u_using_random_sampling(&lf, &mut comparisons, 100, "gamma_", "unique_id")
             .unwrap();
 
         // Non-null levels should have updated u values (may differ from defaults)
@@ -199,10 +199,10 @@ mod tests {
 
     #[test]
     fn test_u_null_levels_untouched() {
-        let df = test_df();
+        let lf = test_lf();
         let mut comparisons = vec![test_helpers::exact_match_comparison("first_name")];
 
-        estimate_u_using_random_sampling(&df, &mut comparisons, 100, "gamma_", "unique_id")
+        estimate_u_using_random_sampling(&lf, &mut comparisons, 100, "gamma_", "unique_id")
             .unwrap();
 
         // Null level (first level) should still have None u
@@ -213,10 +213,10 @@ mod tests {
 
     #[test]
     fn test_u_values_reasonable() {
-        let df = test_df();
+        let lf = test_lf();
         let mut comparisons = vec![test_helpers::exact_match_comparison("first_name")];
 
-        estimate_u_using_random_sampling(&df, &mut comparisons, 100, "gamma_", "unique_id")
+        estimate_u_using_random_sampling(&lf, &mut comparisons, 100, "gamma_", "unique_id")
             .unwrap();
 
         // Among random pairs, exact matches should be rare (u < 0.5)
