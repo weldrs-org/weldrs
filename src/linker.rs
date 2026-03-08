@@ -109,12 +109,12 @@ impl Linker {
     /// ```
     pub fn estimate_probability_two_random_records_match(
         &mut self,
-        df: &LazyFrame,
+        lf: &LazyFrame,
         deterministic_rules: &[BlockingRule],
         recall: f64,
     ) -> Result<f64> {
         let lambda = estimate_lambda::estimate_probability_two_random_records_match(
-            df,
+            lf,
             deterministic_rules,
             &self.settings.link_type,
             &self.settings.unique_id_column,
@@ -146,11 +146,11 @@ impl Linker {
     /// ```
     pub fn estimate_u_using_random_sampling(
         &mut self,
-        df: &LazyFrame,
+        lf: &LazyFrame,
         max_pairs: usize,
     ) -> Result<()> {
         estimate_u::estimate_u_using_random_sampling(
-            df,
+            lf,
             &mut self.settings.comparisons,
             max_pairs,
             &self.settings.gamma_prefix,
@@ -183,12 +183,12 @@ impl Linker {
     /// ```
     pub fn estimate_parameters_using_em(
         &mut self,
-        df: &LazyFrame,
+        lf: &LazyFrame,
         blocking_rule: &BlockingRule,
     ) -> Result<()> {
         // Generate blocked pairs using the training blocking rule.
         let blocked = blocking::generate_blocked_pairs(
-            df,
+            lf,
             std::slice::from_ref(blocking_rule),
             &self.settings.link_type,
             &self.settings.unique_id_column,
@@ -265,10 +265,10 @@ impl Linker {
     /// ```
     pub fn predict(
         &self,
-        df: &LazyFrame,
+        lf: &LazyFrame,
         threshold_match_weight: Option<f64>,
     ) -> Result<LazyFrame> {
-        self.predict_with_mode(df, threshold_match_weight, predict::PredictMode::Lazy)
+        self.predict_with_mode(lf, threshold_match_weight, predict::PredictMode::Lazy)
     }
 
     /// Score record pairs using the trained model with a selectable execution strategy.
@@ -296,12 +296,12 @@ impl Linker {
     /// ```
     pub fn predict_with_mode(
         &self,
-        df: &LazyFrame,
+        lf: &LazyFrame,
         threshold_match_weight: Option<f64>,
         mode: predict::PredictMode,
     ) -> Result<LazyFrame> {
         let blocked = blocking::generate_blocked_pairs(
-            df,
+            lf,
             &self.settings.blocking_rules,
             &self.settings.link_type,
             &self.settings.unique_id_column,
@@ -576,13 +576,13 @@ mod tests {
     #[test]
     fn test_estimate_lambda_updates_settings() {
         let mut linker = make_linker();
-        let df = test_helpers::make_test_df().lazy();
+        let lf = test_helpers::make_test_df().lazy();
 
         let initial_lambda = linker.settings.probability_two_random_records_match;
 
         linker
             .estimate_probability_two_random_records_match(
-                &df,
+                &lf,
                 &[BlockingRule::on(&["first_name", "last_name"])],
                 1.0,
             )
@@ -597,12 +597,12 @@ mod tests {
     #[test]
     fn test_predict_returns_scored_pairs() {
         let mut linker = make_linker();
-        let df = test_helpers::make_test_df().lazy();
+        let lf = test_helpers::make_test_df().lazy();
 
         // Estimate u values so BFs are reasonable
-        linker.estimate_u_using_random_sampling(&df, 100).unwrap();
+        linker.estimate_u_using_random_sampling(&lf, 100).unwrap();
 
-        let predictions = linker.predict(&df, None).unwrap().collect().unwrap();
+        let predictions = linker.predict(&lf, None).unwrap().collect().unwrap();
 
         let col_names: Vec<&str> = predictions
             .get_column_names()
@@ -617,17 +617,17 @@ mod tests {
     #[test]
     fn test_predict_with_mode_direct_matches_lazy() {
         let mut linker = make_linker();
-        let df = test_helpers::make_test_df().lazy();
+        let lf = test_helpers::make_test_df().lazy();
 
-        linker.estimate_u_using_random_sampling(&df, 100).unwrap();
+        linker.estimate_u_using_random_sampling(&lf, 100).unwrap();
 
         let lazy = linker
-            .predict_with_mode(&df, None, PredictMode::Lazy)
+            .predict_with_mode(&lf, None, PredictMode::Lazy)
             .unwrap()
             .collect()
             .unwrap();
         let direct = linker
-            .predict_with_mode(&df, None, PredictMode::Direct)
+            .predict_with_mode(&lf, None, PredictMode::Direct)
             .unwrap()
             .collect()
             .unwrap();
@@ -658,12 +658,12 @@ mod tests {
     #[test]
     fn test_predict_with_mode_auto() {
         let mut linker = make_linker();
-        let df = test_helpers::make_test_df().lazy();
+        let lf = test_helpers::make_test_df().lazy();
 
-        linker.estimate_u_using_random_sampling(&df, 100).unwrap();
+        linker.estimate_u_using_random_sampling(&lf, 100).unwrap();
 
         let predictions = linker
-            .predict_with_mode(&df, None, PredictMode::Auto)
+            .predict_with_mode(&lf, None, PredictMode::Auto)
             .unwrap()
             .collect()
             .unwrap();

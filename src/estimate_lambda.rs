@@ -32,7 +32,7 @@ use crate::settings::LinkType;
 /// [`WeldrsError::Training`] if the
 /// DataFrame has fewer than 2 records.
 pub fn estimate_probability_two_random_records_match(
-    df: &LazyFrame,
+    lf: &LazyFrame,
     deterministic_rules: &[BlockingRule],
     link_type: &LinkType,
     unique_id_col: &str,
@@ -44,7 +44,7 @@ pub fn estimate_probability_two_random_records_match(
         ));
     }
 
-    let collected = df
+    let collected = lf
         .clone()
         .collect()
         .map_err(|e| WeldrsError::Training(format!("Failed to collect: {e}")))?;
@@ -143,7 +143,7 @@ pub fn estimate_probability_two_random_records_match(
 mod tests {
     use super::*;
 
-    fn test_df() -> LazyFrame {
+    fn test_lf() -> LazyFrame {
         use polars::prelude::*;
         df!(
             "unique_id" => [1i64, 2, 3, 4, 5, 6],
@@ -156,11 +156,11 @@ mod tests {
 
     #[test]
     fn test_lambda_basic_estimate() {
-        let df = test_df();
+        let lf = test_lf();
         // Block on first_name + last_name: finds exact duplicate pairs (1,4) and (2,5)
         let rules = vec![BlockingRule::on(&["first_name", "last_name"])];
         let lambda = estimate_probability_two_random_records_match(
-            &df,
+            &lf,
             &rules,
             &LinkType::DedupeOnly,
             "unique_id",
@@ -179,7 +179,7 @@ mod tests {
     fn test_lambda_clamped_low() {
         use polars::prelude::*;
         // All unique records → 0 matches → clamped to 1e-8
-        let df = df!(
+        let lf = df!(
             "unique_id" => [1i64, 2, 3],
             "name" => ["Alice", "Bob", "Carol"],
         )
@@ -188,7 +188,7 @@ mod tests {
 
         let rules = vec![BlockingRule::on(&["name"])];
         let lambda = estimate_probability_two_random_records_match(
-            &df,
+            &lf,
             &rules,
             &LinkType::DedupeOnly,
             "unique_id",
@@ -201,9 +201,9 @@ mod tests {
 
     #[test]
     fn test_lambda_errors_on_empty_rules() {
-        let df = test_df();
+        let lf = test_lf();
         let result = estimate_probability_two_random_records_match(
-            &df,
+            &lf,
             &[],
             &LinkType::DedupeOnly,
             "unique_id",
@@ -219,12 +219,12 @@ mod tests {
     #[test]
     fn test_lambda_errors_on_tiny_df() {
         use polars::prelude::*;
-        let df = df!("unique_id" => [1i64], "name" => ["Alice"])
+        let lf = df!("unique_id" => [1i64], "name" => ["Alice"])
             .unwrap()
             .lazy();
         let rules = vec![BlockingRule::on(&["name"])];
         let result = estimate_probability_two_random_records_match(
-            &df,
+            &lf,
             &rules,
             &LinkType::DedupeOnly,
             "unique_id",

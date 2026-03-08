@@ -44,7 +44,7 @@ mod tests {
         let comp1 = test_helpers::exact_match_comparison("first_name");
         let comp2 = test_helpers::exact_match_comparison("last_name");
 
-        let df = df!(
+        let lf = df!(
             "unique_id_l" => [1i64],
             "unique_id_r" => [2i64],
             "first_name_l" => ["Alice"],
@@ -55,7 +55,7 @@ mod tests {
         .unwrap()
         .lazy();
 
-        let result = compute_comparison_vectors(df, &[comp1, comp2], "gamma_")
+        let result = compute_comparison_vectors(lf, &[comp1, comp2], "gamma_")
             .unwrap()
             .collect()
             .unwrap();
@@ -75,7 +75,7 @@ mod tests {
         let comp2 = test_helpers::exact_match_comparison("last_name");
         let comp3 = test_helpers::exact_match_comparison("city");
 
-        let df = df!(
+        let lf = df!(
             "unique_id_l" => [1i64, 2, 3],
             "unique_id_r" => [4i64, 5, 6],
             "first_name_l" => ["Alice", "Bob", "Carol"],
@@ -88,7 +88,7 @@ mod tests {
         .unwrap()
         .lazy();
 
-        let result = compute_comparison_vectors(df, &[comp1, comp2, comp3], "gamma_")
+        let result = compute_comparison_vectors(lf, &[comp1, comp2, comp3], "gamma_")
             .unwrap()
             .collect()
             .unwrap();
@@ -134,7 +134,7 @@ mod tests {
     fn test_gamma_values_correct() {
         let comp = test_helpers::exact_match_comparison("name");
 
-        let df = df!(
+        let lf = df!(
             "unique_id_l" => [1i64, 2],
             "unique_id_r" => [3i64, 4],
             "name_l" => ["Alice", "Bob"],
@@ -143,7 +143,7 @@ mod tests {
         .unwrap()
         .lazy();
 
-        let result = compute_comparison_vectors(df, &[comp], "gamma_")
+        let result = compute_comparison_vectors(lf, &[comp], "gamma_")
             .unwrap()
             .collect()
             .unwrap();

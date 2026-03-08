@@ -310,7 +310,7 @@ mod tests {
         comp
     }
 
-    fn cv_df(gamma_values: &[i32]) -> LazyFrame {
+    fn comparison_vector_lf(gamma_values: &[i32]) -> LazyFrame {
         let uids_l: Vec<i64> = (0..gamma_values.len() as i64).collect();
         let uids_r: Vec<i64> = (100..100 + gamma_values.len() as i64).collect();
         df!(
@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn test_predict_adds_columns() {
         let comp = trained_comparison();
-        let cv = cv_df(&[1, 0]);
+        let cv = comparison_vector_lf(&[1, 0]);
 
         let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", None, None)
             .unwrap()
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn test_predict_correct_values() {
         let comp = trained_comparison();
-        let cv = cv_df(&[1, 0]); // exact match pair, non-match pair
+        let cv = comparison_vector_lf(&[1, 0]); // exact match pair, non-match pair
 
         // Use lambda=0.1 so the prior doesn't dominate with a single comparison
         let result = predict(cv, &[comp], 0.1, "gamma_", "bf_", None, None)
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn test_predict_threshold_probability() {
         let comp = trained_comparison();
-        let cv = cv_df(&[1, 0, 0]);
+        let cv = comparison_vector_lf(&[1, 0, 0]);
 
         let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", Some(0.5), None)
             .unwrap()
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn test_predict_threshold_weight() {
         let comp = trained_comparison();
-        let cv = cv_df(&[1, 0, 0]);
+        let cv = comparison_vector_lf(&[1, 0, 0]);
 
         let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", None, Some(0.0))
             .unwrap()
@@ -414,7 +414,7 @@ mod tests {
     #[allow(clippy::cloned_ref_to_slice_refs)]
     fn test_predict_direct_matches_lazy() {
         let comp = trained_comparison();
-        let cv_eager = cv_df(&[1, 0]).collect().unwrap();
+        let cv_eager = comparison_vector_lf(&[1, 0]).collect().unwrap();
 
         let lazy_result = predict(
             cv_eager.clone().lazy(),
@@ -462,7 +462,7 @@ mod tests {
     #[test]
     fn test_predict_direct_threshold() {
         let comp = trained_comparison();
-        let cv_eager = cv_df(&[1, 0, 0]).collect().unwrap();
+        let cv_eager = comparison_vector_lf(&[1, 0, 0]).collect().unwrap();
 
         let result =
             predict_direct(cv_eager, &[comp], 0.0001, "gamma_", "bf_", Some(0.5), None).unwrap();

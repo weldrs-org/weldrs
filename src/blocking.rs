@@ -68,9 +68,9 @@ impl BlockingRule {
     }
 }
 
-/// Suffix all columns in a DataFrame, adding `_l` or `_r`.
-fn suffix_columns(df: &LazyFrame, suffix: &str) -> LazyFrame {
-    df.clone().select([col("*").name().suffix(suffix)])
+/// Suffix all columns in a LazyFrame, adding `_l` or `_r`.
+fn suffix_columns(lf: &LazyFrame, suffix: &str) -> LazyFrame {
+    lf.clone().select([col("*").name().suffix(suffix)])
 }
 
 /// Generate candidate record pairs by applying blocking rules via equi-joins.
@@ -82,7 +82,7 @@ fn suffix_columns(df: &LazyFrame, suffix: &str) -> LazyFrame {
 ///
 /// Returns an error if a Polars join or schema operation fails.
 pub fn generate_blocked_pairs(
-    df: &LazyFrame,
+    lf: &LazyFrame,
     blocking_rules: &[BlockingRule],
     link_type: &LinkType,
     unique_id_col: &str,
@@ -90,8 +90,8 @@ pub fn generate_blocked_pairs(
     let uid_l = format!("{unique_id_col}_l");
     let uid_r = format!("{unique_id_col}_r");
 
-    let mut left = suffix_columns(df, "_l");
-    let mut right = suffix_columns(df, "_r");
+    let mut left = suffix_columns(lf, "_l");
+    let mut right = suffix_columns(lf, "_r");
 
     // Build a consistent column selection order for all blocking rules.
     let left_schema = left
@@ -185,7 +185,7 @@ pub fn generate_blocked_pairs(
 mod tests {
     use super::*;
 
-    fn small_df() -> LazyFrame {
+    fn small_lazy_frame() -> LazyFrame {
         df!(
             "unique_id" => [1i64, 2, 3, 4],
             "first_name" => ["Alice", "Bob", "Alice", "Carol"],
@@ -197,9 +197,9 @@ mod tests {
 
     #[test]
     fn test_dedupe_only_pairs() {
-        let df = small_df();
+        let lf = small_lazy_frame();
         let rules = vec![BlockingRule::on(&["city"])];
-        let pairs = generate_blocked_pairs(&df, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
             .unwrap()
             .collect()
             .unwrap();
@@ -214,9 +214,9 @@ mod tests {
 
     #[test]
     fn test_cross_join_fallback() {
-        let df = small_df();
+        let lf = small_lazy_frame();
         // Empty rules → cross-join fallback
-        let pairs = generate_blocked_pairs(&df, &[], &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &[], &LinkType::DedupeOnly, "unique_id")
             .unwrap()
             .collect()
             .unwrap();
@@ -227,13 +227,13 @@ mod tests {
 
     #[test]
     fn test_multi_rule_deduplication() {
-        let df = small_df();
+        let lf = small_lazy_frame();
         // Two rules that can produce overlapping pairs (city=London gives (1,2),(1,4),(2,4))
         let rules = vec![
             BlockingRule::on(&["city"]),
             BlockingRule::on(&["first_name"]),
         ];
-        let pairs = generate_blocked_pairs(&df, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
             .unwrap()
             .collect()
             .unwrap();
@@ -253,9 +253,9 @@ mod tests {
 
     #[test]
     fn test_match_key_assignment() {
-        let df = small_df();
+        let lf = small_lazy_frame();
         let rules = vec![BlockingRule::on(&["city"])];
-        let pairs = generate_blocked_pairs(&df, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
             .unwrap()
             .collect()
             .unwrap();
@@ -270,9 +270,9 @@ mod tests {
 
     #[test]
     fn test_suffixed_columns() {
-        let df = small_df();
+        let lf = small_lazy_frame();
         let rules = vec![BlockingRule::on(&["city"])];
-        let pairs = generate_blocked_pairs(&df, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
             .unwrap()
             .collect()
             .unwrap();
