@@ -284,12 +284,10 @@ impl SettingsBuilder {
                     }
                 }
                 let gamma_name = format!("{}{}", self.gamma_prefix, comp.output_column_name);
-                for other_col in suffixed.iter() {
-                    if *other_col == gamma_name {
-                        return Err(WeldrsError::Config(format!(
-                            "Generated gamma column '{gamma_name}' collides with a suffixed input column."
-                        )));
-                    }
+                if suffixed.contains(&gamma_name) {
+                    return Err(WeldrsError::Config(format!(
+                        "Generated gamma column '{gamma_name}' collides with a suffixed input column."
+                    )));
                 }
             }
         }
