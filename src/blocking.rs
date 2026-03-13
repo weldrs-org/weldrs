@@ -27,9 +27,9 @@
 //!     .with_description("city + state block");
 //! ```
 
+use log::warn;
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
-use log::warn;
 
 use crate::error::Result;
 use crate::settings::LinkType;

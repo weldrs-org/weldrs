@@ -116,7 +116,19 @@ pub struct Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comparison::ComparisonBuilder;
+    use crate::error::WeldrsError;
+    use crate::test_helpers;
     use serde_json;
+
+    fn simple_comparison(column: &str) -> Comparison {
+        ComparisonBuilder::new(column)
+            .null_level()
+            .exact_match_level()
+            .else_level()
+            .build()
+            .expect("comparison should build successfully")
+    }
 
     #[test]
     fn version_defaults_to_one_when_missing() {
@@ -140,8 +152,115 @@ mod tests {
         }
         "#;
 
-        let settings: Settings = serde_json::from_str(json).expect("deserialization should succeed");
+        let settings: Settings =
+            serde_json::from_str(json).expect("deserialization should succeed");
         assert_eq!(settings.version, 1);
+    }
+
+    #[test]
+    fn build_rejects_input_suffix_collisions() {
+        let settings_result = Settings::builder(LinkType::DedupeOnly)
+            .comparison(simple_comparison("name"))
+            .comparison(simple_comparison("name_l"))
+            .build();
+
+        match settings_result {
+            Err(WeldrsError::Config(_)) => {}
+            other => panic!(
+                "expected WeldrsError::Config due to input suffix collision, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn build_rejects_gamma_column_collisions_with_suffixed_inputs() {
+        let settings_result = Settings::builder(LinkType::DedupeOnly)
+            .comparison(simple_comparison("gamma_col"))
+            .comparison(simple_comparison("col_l"))
+            .build();
+
+        match settings_result {
+            Err(WeldrsError::Config(_)) => {}
+            other => panic!(
+                "expected WeldrsError::Config due to gamma/suffixed column collision, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn test_builder_defaults() {
+        let comp = test_helpers::exact_match_comparison("name");
+        let settings = Settings::builder(LinkType::DedupeOnly)
+            .comparison(comp)
+            .build()
+            .unwrap();
+
+        assert_eq!(settings.unique_id_column, "unique_id");
+        assert_eq!(settings.gamma_prefix, "gamma_");
+        assert_eq!(settings.bf_prefix, "bf_");
+        assert!((settings.probability_two_random_records_match - 0.0001).abs() < 1e-10);
+        assert!((settings.training.em_convergence - 0.0001).abs() < 1e-10);
+        assert_eq!(settings.training.max_iterations, 25);
+    }
+
+    #[test]
+    fn test_builder_custom_values() {
+        let comp = test_helpers::exact_match_comparison("name");
+        let settings = Settings::builder(LinkType::LinkOnly)
+            .comparison(comp)
+            .unique_id_column("record_id")
+            .source_dataset_column("source")
+            .probability_two_random_records_match(0.01)
+            .gamma_prefix("g_")
+            .bf_prefix("bayes_")
+            .training_settings(TrainingSettings {
+                em_convergence: 0.001,
+                max_iterations: 50,
+                ..Default::default()
+            })
+            .blocking_rule(BlockingRule::on(&["city"]))
+            .build()
+            .unwrap();
+
+        assert_eq!(settings.link_type, LinkType::LinkOnly);
+        assert_eq!(settings.unique_id_column, "record_id");
+        assert_eq!(settings.source_dataset_column.as_deref(), Some("source"));
+        assert!((settings.probability_two_random_records_match - 0.01).abs() < 1e-10);
+        assert_eq!(settings.gamma_prefix, "g_");
+        assert_eq!(settings.bf_prefix, "bayes_");
+        assert!((settings.training.em_convergence - 0.001).abs() < 1e-10);
+        assert_eq!(settings.training.max_iterations, 50);
+        assert_eq!(settings.blocking_rules.len(), 1);
+    }
+
+    #[test]
+    fn test_builder_empty_comparisons_errors() {
+        let result = Settings::builder(LinkType::DedupeOnly).build();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            WeldrsError::Config(_) => {}
+            other => panic!("Expected Config error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_settings_serde_roundtrip() {
+        let comp = test_helpers::fuzzy_comparison("name", 0.85);
+        let settings = Settings::builder(LinkType::DedupeOnly)
+            .comparison(comp)
+            .blocking_rule(BlockingRule::on(&["last_name"]))
+            .build()
+            .unwrap();
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.link_type, settings.link_type);
+        assert_eq!(restored.comparisons.len(), settings.comparisons.len());
+        assert_eq!(restored.blocking_rules.len(), settings.blocking_rules.len());
+        assert_eq!(restored.unique_id_column, settings.unique_id_column);
     }
 }
 
@@ -304,144 +423,5 @@ impl SettingsBuilder {
             gamma_prefix: self.gamma_prefix,
             bf_prefix: self.bf_prefix,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::comparison::ComparisonBuilder;
-    use crate::error::WeldrsError;
-
-    fn simple_comparison(column: &str) -> Comparison {
-        ComparisonBuilder::new(column)
-            .null_level()
-            .exact_match_level()
-            .else_level()
-            .build()
-            .expect("comparison should build successfully")
-    }
-
-    #[test]
-    fn build_rejects_input_suffix_collisions() {
-        // One comparison uses "name", another uses "name_l".
-        // The suffixed set will contain "name_l" from the first comparison,
-        // so the second comparison's input column "name_l" collides.
-        let settings_result = Settings::builder(LinkType::DedupeOnly)
-            .comparison(simple_comparison("name"))
-            .comparison(simple_comparison("name_l"))
-            .build();
-
-        match settings_result {
-            Err(WeldrsError::Config(_)) => {}
-            other => panic!("expected WeldrsError::Config due to input suffix collision, got: {:?}", other),
-        }
-    }
-
-    #[test]
-    fn build_rejects_gamma_column_collisions_with_suffixed_inputs() {
-        // Construct comparisons such that a generated gamma column name
-        // collides with a suffixed input column name.
-        //
-        // Assuming the default gamma_prefix "gamma_" and that the output
-        // column name is derived from the input column:
-        // - For a comparison on "gamma_col", a suffixed name "gamma_col_l"
-        //   will be generated.
-        // - For a comparison on "col_l", the gamma column will be
-        //   "gamma_col_l", colliding with the suffixed name above.
-        let settings_result = Settings::builder(LinkType::DedupeOnly)
-            .comparison(simple_comparison("gamma_col"))
-            .comparison(simple_comparison("col_l"))
-            .build();
-
-        match settings_result {
-            Err(WeldrsError::Config(_)) => {}
-            other => panic!(
-                "expected WeldrsError::Config due to gamma/suffixed column collision, got: {:?}",
-                other
-            ),
-        }
-    }
-}
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_helpers;
-
-    #[test]
-    fn test_builder_defaults() {
-        let comp = test_helpers::exact_match_comparison("name");
-        let settings = Settings::builder(LinkType::DedupeOnly)
-            .comparison(comp)
-            .build()
-            .unwrap();
-
-        assert_eq!(settings.unique_id_column, "unique_id");
-        assert_eq!(settings.gamma_prefix, "gamma_");
-        assert_eq!(settings.bf_prefix, "bf_");
-        assert!((settings.probability_two_random_records_match - 0.0001).abs() < 1e-10);
-        assert!((settings.training.em_convergence - 0.0001).abs() < 1e-10);
-        assert_eq!(settings.training.max_iterations, 25);
-    }
-
-    #[test]
-    fn test_builder_custom_values() {
-        let comp = test_helpers::exact_match_comparison("name");
-        let settings = Settings::builder(LinkType::LinkOnly)
-            .comparison(comp)
-            .unique_id_column("record_id")
-            .source_dataset_column("source")
-            .probability_two_random_records_match(0.01)
-            .gamma_prefix("g_")
-            .bf_prefix("bayes_")
-            .training_settings(TrainingSettings {
-                em_convergence: 0.001,
-                max_iterations: 50,
-                ..Default::default()
-            })
-            .blocking_rule(BlockingRule::on(&["city"]))
-            .build()
-            .unwrap();
-
-        assert_eq!(settings.link_type, LinkType::LinkOnly);
-        assert_eq!(settings.unique_id_column, "record_id");
-        assert_eq!(settings.source_dataset_column.as_deref(), Some("source"));
-        assert!((settings.probability_two_random_records_match - 0.01).abs() < 1e-10);
-        assert_eq!(settings.gamma_prefix, "g_");
-        assert_eq!(settings.bf_prefix, "bayes_");
-        assert!((settings.training.em_convergence - 0.001).abs() < 1e-10);
-        assert_eq!(settings.training.max_iterations, 50);
-        assert_eq!(settings.blocking_rules.len(), 1);
-    }
-
-    #[test]
-    fn test_builder_empty_comparisons_errors() {
-        let result = Settings::builder(LinkType::DedupeOnly).build();
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            WeldrsError::Config(_) => {}
-            other => panic!("Expected Config error, got: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_settings_serde_roundtrip() {
-        let comp = test_helpers::fuzzy_comparison("name", 0.85);
-        let settings = Settings::builder(LinkType::DedupeOnly)
-            .comparison(comp)
-            .blocking_rule(BlockingRule::on(&["last_name"]))
-            .build()
-            .unwrap();
-
-        let json = serde_json::to_string(&settings).unwrap();
-        let restored: Settings = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(restored.link_type, settings.link_type);
-        assert_eq!(restored.comparisons.len(), settings.comparisons.len());
-        assert_eq!(restored.blocking_rules.len(), settings.blocking_rules.len());
-        assert_eq!(restored.unique_id_column, settings.unique_id_column);
     }
 }

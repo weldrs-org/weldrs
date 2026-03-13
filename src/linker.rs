@@ -22,13 +22,15 @@ use crate::settings::Settings;
 /// Holds the model settings (including trained parameters) and provides
 /// methods for training, prediction, and clustering.
 pub struct Linker {
+    /// Model settings. Use [`Linker::settings()`] / [`Linker::settings_mut()`] instead.
     #[deprecated(
-        since = "X.Y.Z",
+        since = "0.2.0",
         note = "Direct access to `Linker.settings` is deprecated; use `settings()` / `settings_mut()` instead."
     )]
     pub settings: Settings,
 }
 
+#[allow(deprecated)]
 impl Linker {
     /// Read-only access to the model settings.
     pub fn settings(&self) -> &Settings {
@@ -80,6 +82,7 @@ fn lazy_row_count(lf: &LazyFrame) -> Result<usize> {
     })
 }
 
+#[allow(deprecated)]
 impl Linker {
     /// Create a new linker with the given settings.
     ///
@@ -557,6 +560,7 @@ impl Linker {
 // ── Visualization (feature-gated) ─────────────────────────────────
 
 #[cfg(feature = "visualize")]
+#[allow(deprecated)]
 impl Linker {
     /// Render a waterfall chart for a single record pair as an SVG string.
     pub fn waterfall_chart_svg(
@@ -580,6 +584,7 @@ impl Linker {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::predict::PredictMode;
