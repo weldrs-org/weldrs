@@ -22,7 +22,11 @@ use crate::settings::Settings;
 /// Holds the model settings (including trained parameters) and provides
 /// methods for training, prediction, and clustering.
 pub struct Linker {
-    settings: Settings,
+    #[deprecated(
+        since = "X.Y.Z",
+        note = "Direct access to `Linker.settings` is deprecated; use `settings()` / `settings_mut()` instead."
+    )]
+    pub settings: Settings,
 }
 
 impl Linker {
