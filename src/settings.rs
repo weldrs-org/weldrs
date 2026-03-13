@@ -113,6 +113,38 @@ pub struct Settings {
     pub bf_prefix: String,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn version_defaults_to_one_when_missing() {
+        // JSON payload intentionally omits the `version` field to simulate
+        // settings saved by older versions of the library.
+        let json = r#"
+        {
+            "link_type": "DedupeOnly",
+            "comparisons": [],
+            "blocking_rules": [],
+            "probability_two_random_records_match": 0.001,
+            "unique_id_column": "id",
+            "source_dataset_column": null,
+            "training": {
+                "em_convergence": 0.0001,
+                "max_iterations": 10,
+                "store_history": true
+            },
+            "gamma_prefix": "gamma_",
+            "bf_prefix": "bf_"
+        }
+        "#;
+
+        let settings: Settings = serde_json::from_str(json).expect("deserialization should succeed");
+        assert_eq!(settings.version, 1);
+    }
+}
+
 impl Settings {
     /// Start building a [`Settings`] value.
     ///
