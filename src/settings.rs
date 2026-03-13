@@ -293,7 +293,7 @@ impl SettingsBuilder {
         }
 
         Ok(Settings {
-            version: 1,
+            version: default_version(),
             link_type: self.link_type,
             comparisons: self.comparisons,
             blocking_rules: self.blocking_rules,
