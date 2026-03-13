@@ -31,10 +31,10 @@ pub fn estimate_u_using_random_sampling(
     unique_id_col: &str,
     seed: Option<u64>,
 ) -> Result<()> {
-    let collected = lf
-        .clone()
-        .collect()
-        .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Failed to collect DataFrame: {e}") })?;
+    let collected = lf.clone().collect().map_err(|e| WeldrsError::Training {
+        stage: "estimate_u",
+        message: format!("Failed to collect DataFrame: {e}"),
+    })?;
     let n_rows = collected.height();
     if n_rows < 2 {
         return Err(WeldrsError::Training {
@@ -67,12 +67,18 @@ pub fn estimate_u_using_random_sampling(
 
     let slim = collected
         .select(needed_cols)
-        .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Column selection failed: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "estimate_u",
+            message: format!("Column selection failed: {e}"),
+        })?;
 
     // Sample and create left/right DataFrames.
     let sampled = slim
         .sample_n_literal(sample_size, false, true, seed)
-        .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Sampling failed: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "estimate_u",
+            message: format!("Sampling failed: {e}"),
+        })?;
 
     let left = sampled
         .clone()
@@ -101,14 +107,23 @@ pub fn estimate_u_using_random_sampling(
         .group_by(group_exprs)
         .agg([len().alias("__count")])
         .collect()
-        .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Failed to count patterns: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "estimate_u",
+            message: format!("Failed to count patterns: {e}"),
+        })?;
 
     let count_series = pattern_counts
         .column("__count")
-        .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Missing count: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "estimate_u",
+            message: format!("Missing count: {e}"),
+        })?;
     let counts: Vec<f64> = count_series
         .u32()
-        .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Count type error: {e}") })?
+        .map_err(|e| WeldrsError::Training {
+            stage: "estimate_u",
+            message: format!("Count type error: {e}"),
+        })?
         .into_no_null_iter()
         .map(|v| v as f64)
         .collect();
@@ -116,12 +131,17 @@ pub fn estimate_u_using_random_sampling(
     // For each comparison, compute u-probabilities from level frequencies.
     for comp in comparisons.iter_mut() {
         let gamma_col_name = comp.gamma_column_name(gamma_prefix);
-        let gamma_series = pattern_counts
-            .column(&gamma_col_name)
-            .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Missing gamma column: {e}") })?;
-        let gammas = gamma_series
-            .i8()
-            .map_err(|e| WeldrsError::Training { stage: "estimate_u", message: format!("Gamma type error: {e}") })?;
+        let gamma_series =
+            pattern_counts
+                .column(&gamma_col_name)
+                .map_err(|e| WeldrsError::Training {
+                    stage: "estimate_u",
+                    message: format!("Missing gamma column: {e}"),
+                })?;
+        let gammas = gamma_series.i8().map_err(|e| WeldrsError::Training {
+            stage: "estimate_u",
+            message: format!("Gamma type error: {e}"),
+        })?;
 
         // Total non-null count for this comparison.
         let mut total_non_null = 0.0_f64;
@@ -180,8 +200,15 @@ mod tests {
             .map(|l| l.u_probability)
             .collect();
 
-        estimate_u_using_random_sampling(&lf, &mut comparisons, 100, "gamma_", "unique_id", Some(42))
-            .unwrap();
+        estimate_u_using_random_sampling(
+            &lf,
+            &mut comparisons,
+            100,
+            "gamma_",
+            "unique_id",
+            Some(42),
+        )
+        .unwrap();
 
         // Non-null levels should have updated u values (may differ from defaults)
         for level in &comparisons[0].comparison_levels {
@@ -204,8 +231,15 @@ mod tests {
         let lf = test_lf();
         let mut comparisons = vec![test_helpers::exact_match_comparison("first_name")];
 
-        estimate_u_using_random_sampling(&lf, &mut comparisons, 100, "gamma_", "unique_id", Some(42))
-            .unwrap();
+        estimate_u_using_random_sampling(
+            &lf,
+            &mut comparisons,
+            100,
+            "gamma_",
+            "unique_id",
+            Some(42),
+        )
+        .unwrap();
 
         // Null level (first level) should still have None u
         let null_level = &comparisons[0].comparison_levels[0];
@@ -218,8 +252,15 @@ mod tests {
         let lf = test_lf();
         let mut comparisons = vec![test_helpers::exact_match_comparison("first_name")];
 
-        estimate_u_using_random_sampling(&lf, &mut comparisons, 100, "gamma_", "unique_id", Some(42))
-            .unwrap();
+        estimate_u_using_random_sampling(
+            &lf,
+            &mut comparisons,
+            100,
+            "gamma_",
+            "unique_id",
+            Some(42),
+        )
+        .unwrap();
 
         // Among random pairs, exact matches should be rare (u < 0.5)
         // and the else level should be common (u > 0.5)

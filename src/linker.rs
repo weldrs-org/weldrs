@@ -43,19 +43,37 @@ fn lazy_row_count(lf: &LazyFrame) -> Result<usize> {
         .clone()
         .select([len().alias("__n_rows")])
         .collect()
-        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Failed to count candidate pairs: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "linker",
+            message: format!("Failed to count candidate pairs: {e}"),
+        })?;
     let series = row_count
         .column("__n_rows")
-        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Missing row-count column: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "linker",
+            message: format!("Missing row-count column: {e}"),
+        })?;
     let cast = series
         .cast(&DataType::UInt64)
-        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Row-count cast failed: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "linker",
+            message: format!("Row-count cast failed: {e}"),
+        })?;
     let n = cast
         .u64()
-        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Row-count type error: {e}") })?
+        .map_err(|e| WeldrsError::Training {
+            stage: "linker",
+            message: format!("Row-count type error: {e}"),
+        })?
         .get(0)
-        .ok_or_else(|| WeldrsError::Training { stage: "linker", message: "Row-count query returned no rows".into() })?;
-    usize::try_from(n).map_err(|_| WeldrsError::Training { stage: "linker", message: "Row count exceeds usize".into() })
+        .ok_or_else(|| WeldrsError::Training {
+            stage: "linker",
+            message: "Row-count query returned no rows".into(),
+        })?;
+    usize::try_from(n).map_err(|_| WeldrsError::Training {
+        stage: "linker",
+        message: "Row count exceeds usize".into(),
+    })
 }
 
 impl Linker {
@@ -355,10 +373,11 @@ impl Linker {
                 threshold_match_weight,
             ),
             predict::PredictMode::Direct => {
-                let cv_df = cv.collect().map_err(|e| {
-                    WeldrsError::Training { stage: "linker", message: format!(
+                let cv_df = cv.collect().map_err(|e| WeldrsError::Training {
+                    stage: "linker",
+                    message: format!(
                         "Failed to materialize comparison vectors for direct scoring: {e}"
-                    ) }
+                    ),
                 })?;
                 let scored = predict::predict_direct(
                     cv_df,
@@ -613,7 +632,8 @@ mod tests {
             .unwrap();
 
         assert_ne!(
-            linker.settings().probability_two_random_records_match, initial_lambda,
+            linker.settings().probability_two_random_records_match,
+            initial_lambda,
             "Lambda should change after estimation"
         );
     }

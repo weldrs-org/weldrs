@@ -89,7 +89,10 @@ pub fn expectation_maximization(
         .group_by(group_exprs)
         .agg([len().alias("__count")])
         .collect()
-        .map_err(|e| WeldrsError::Training { stage: "em", message: format!("Failed to count agreement patterns: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "em",
+            message: format!("Failed to count agreement patterns: {e}"),
+        })?;
 
     // Pre-extract gamma columns once — shared across all E/M steps.
     let gamma_columns: Vec<Vec<i8>> = comparisons
@@ -98,10 +101,14 @@ pub fn expectation_maximization(
             let col_name = comp.gamma_column_name(gamma_prefix);
             let series = pattern_counts
                 .column(&col_name)
-                .map_err(|e| WeldrsError::Training { stage: "em", message: format!("Missing gamma column: {e}") })?;
-            let gammas = series
-                .i8()
-                .map_err(|e| WeldrsError::Training { stage: "em", message: format!("Gamma column type error: {e}") })?;
+                .map_err(|e| WeldrsError::Training {
+                    stage: "em",
+                    message: format!("Missing gamma column: {e}"),
+                })?;
+            let gammas = series.i8().map_err(|e| WeldrsError::Training {
+                stage: "em",
+                message: format!("Gamma column type error: {e}"),
+            })?;
             Ok(gammas.into_iter().map(|v| v.unwrap_or(-1i8)).collect())
         })
         .collect::<Result<Vec<_>>>()?;
@@ -109,10 +116,16 @@ pub fn expectation_maximization(
     // Pre-extract counts once.
     let count_series = pattern_counts
         .column("__count")
-        .map_err(|e| WeldrsError::Training { stage: "em", message: format!("Missing count column: {e}") })?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "em",
+            message: format!("Missing count column: {e}"),
+        })?;
     let counts: Vec<f64> = count_series
         .u32()
-        .map_err(|e| WeldrsError::Training { stage: "em", message: format!("Count column type error: {e}") })?
+        .map_err(|e| WeldrsError::Training {
+            stage: "em",
+            message: format!("Count column type error: {e}"),
+        })?
         .into_no_null_iter()
         .map(|v| v as f64)
         .collect();

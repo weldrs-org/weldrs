@@ -44,10 +44,10 @@ pub fn estimate_probability_two_random_records_match(
         ));
     }
 
-    let collected = lf
-        .clone()
-        .collect()
-        .map_err(|e| WeldrsError::Training { stage: "estimate_lambda", message: format!("Failed to collect: {e}") })?;
+    let collected = lf.clone().collect().map_err(|e| WeldrsError::Training {
+        stage: "estimate_lambda",
+        message: format!("Failed to collect: {e}"),
+    })?;
     let n = collected.height() as f64;
 
     if n < 2.0 {
@@ -123,15 +123,20 @@ pub fn estimate_probability_two_random_records_match(
     let unioned = if all_pairs.len() == 1 {
         all_pairs.into_iter().next().unwrap()
     } else {
-        concat(&all_pairs, UnionArgs::default())
-            .map_err(|e| WeldrsError::Training { stage: "estimate_lambda", message: format!("Concat failed: {e}") })?
+        concat(&all_pairs, UnionArgs::default()).map_err(|e| WeldrsError::Training {
+            stage: "estimate_lambda",
+            message: format!("Concat failed: {e}"),
+        })?
     };
 
     let unique_pairs = unioned.unique(Some(cols([uid_l, uid_r])), UniqueKeepStrategy::First);
 
     let match_count = unique_pairs
         .collect()
-        .map_err(|e| WeldrsError::Training { stage: "estimate_lambda", message: format!("Failed to count matches: {e}") })?
+        .map_err(|e| WeldrsError::Training {
+            stage: "estimate_lambda",
+            message: format!("Failed to count matches: {e}"),
+        })?
         .height() as f64;
 
     let lambda = match_count / (total_pairs * recall);
