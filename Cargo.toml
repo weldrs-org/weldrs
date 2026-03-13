@@ -1,6 +1,6 @@
 [package]
 name = "weldrs"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2024"
 description = "A Rust implementation of Splink- or fastLink-style probabilistic record linkage"
 license = "MIT"
@@ -38,6 +38,7 @@ thiserror = "2"
 strsim = "0.11"
 rayon = "1.11"
 rand = "0.8"
+log = "0.4"
 rustc-hash = "2"
 triple_accel = { version = "0.4", optional = true }
 plotters = { version = "0.3", optional = true, default-features = false, features = ["svg_backend", "line_series"] }

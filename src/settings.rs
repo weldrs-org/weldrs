@@ -81,9 +81,17 @@ impl Default for TrainingSettings {
     }
 }
 
+fn default_version() -> u32 {
+    1
+}
+
 /// Full settings for a weldrs model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    /// Schema version for forward-compatible deserialization.
+    /// Old JSON without this field will default to version 1.
+    #[serde(default = "default_version")]
+    pub version: u32,
     /// Whether this is deduplication, linkage, or both.
     pub link_type: LinkType,
     /// The comparisons that define how record pairs are scored.
@@ -223,7 +231,37 @@ impl SettingsBuilder {
                 "At least one comparison is required".into(),
             ));
         }
+
+        // Validate that input column names don't collide with generated
+        // suffixed/prefixed names.
+        {
+            let mut suffixed: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for comp in &self.comparisons {
+                for col in &comp.input_columns {
+                    suffixed.insert(format!("{col}_l"));
+                    suffixed.insert(format!("{col}_r"));
+                }
+            }
+            for comp in &self.comparisons {
+                for col in &comp.input_columns {
+                    if suffixed.contains(col.as_str()) {
+                        return Err(WeldrsError::Config(format!(
+                            "Input column '{col}' collides with a generated suffixed column name. \
+                             Avoid columns ending in '_l' or '_r'."
+                        )));
+                    }
+                }
+                let gamma_name = format!("{}{}", self.gamma_prefix, comp.output_column_name);
+                if suffixed.contains(&gamma_name) {
+                    return Err(WeldrsError::Config(format!(
+                        "Generated gamma column '{gamma_name}' collides with a suffixed input column."
+                    )));
+                }
+            }
+        }
+
         Ok(Settings {
+            version: default_version(),
             link_type: self.link_type,
             comparisons: self.comparisons,
             blocking_rules: self.blocking_rules,
@@ -236,11 +274,81 @@ impl SettingsBuilder {
         })
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comparison::ComparisonBuilder;
+    use crate::error::WeldrsError;
     use crate::test_helpers;
+    use serde_json;
+
+    fn simple_comparison(column: &str) -> Comparison {
+        ComparisonBuilder::new(column)
+            .null_level()
+            .exact_match_level()
+            .else_level()
+            .build()
+            .expect("comparison should build successfully")
+    }
+
+    #[test]
+    fn version_defaults_to_one_when_missing() {
+        // JSON payload intentionally omits the `version` field to simulate
+        // settings saved by older versions of the library.
+        let json = r#"
+        {
+            "link_type": "DedupeOnly",
+            "comparisons": [],
+            "blocking_rules": [],
+            "probability_two_random_records_match": 0.001,
+            "unique_id_column": "id",
+            "source_dataset_column": null,
+            "training": {
+                "em_convergence": 0.0001,
+                "max_iterations": 10,
+                "store_history": true
+            },
+            "gamma_prefix": "gamma_",
+            "bf_prefix": "bf_"
+        }
+        "#;
+
+        let settings: Settings =
+            serde_json::from_str(json).expect("deserialization should succeed");
+        assert_eq!(settings.version, 1);
+    }
+
+    #[test]
+    fn build_rejects_input_suffix_collisions() {
+        let settings_result = Settings::builder(LinkType::DedupeOnly)
+            .comparison(simple_comparison("name"))
+            .comparison(simple_comparison("name_l"))
+            .build();
+
+        match settings_result {
+            Err(WeldrsError::Config(_)) => {}
+            other => panic!(
+                "expected WeldrsError::Config due to input suffix collision, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn build_rejects_gamma_column_collisions_with_suffixed_inputs() {
+        let settings_result = Settings::builder(LinkType::DedupeOnly)
+            .comparison(simple_comparison("gamma_col"))
+            .comparison(simple_comparison("col_l"))
+            .build();
+
+        match settings_result {
+            Err(WeldrsError::Config(_)) => {}
+            other => panic!(
+                "expected WeldrsError::Config due to gamma/suffixed column collision, got: {:?}",
+                other
+            ),
+        }
+    }
 
     #[test]
     fn test_builder_defaults() {

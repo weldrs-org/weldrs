@@ -103,9 +103,9 @@ fn par_pairwise_string_predicate(
         .map(|(l, r)| predicate(l, r))
         .collect();
 
-    // Phase 3: Map results back to all rows.
+    // Phase 3: Map results back to all rows (parallel — read-only lookups).
     let bools: Vec<bool> = row_pair_idx
-        .iter()
+        .par_iter()
         .map(|&idx| {
             if idx == u32::MAX {
                 false

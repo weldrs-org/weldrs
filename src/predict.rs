@@ -20,6 +20,7 @@
 //!   and model size.
 
 use polars::prelude::*;
+use rayon::prelude::*;
 
 use crate::comparison::Comparison;
 use crate::error::{Result, WeldrsError};
@@ -68,8 +69,16 @@ pub fn resolve_predict_mode(
 }
 
 fn match_probability_from_log2_odds(log2_odds: f64) -> f64 {
-    let bf = (2.0_f64).powf(log2_odds);
-    bf / (1.0 + bf)
+    // Convert log2-odds to natural log-odds, then apply a numerically stable
+    // sigmoid. Using exp() instead of powf() is ~3× faster, and the two-branch
+    // form avoids overflow for large positive log-odds values.
+    let log_odds = log2_odds * std::f64::consts::LN_2;
+    if log_odds >= 0.0 {
+        1.0 / (1.0 + (-log_odds).exp())
+    } else {
+        let e = log_odds.exp();
+        e / (1.0 + e)
+    }
 }
 
 fn extract_gamma_columns_i8(
@@ -81,15 +90,23 @@ fn extract_gamma_columns_i8(
         .iter()
         .map(|comp| {
             let col_name = comp.gamma_column_name(gamma_prefix);
-            let series = comparison_vectors
-                .column(&col_name)
-                .map_err(|e| WeldrsError::Training(format!("Missing gamma column: {e}")))?;
+            let series =
+                comparison_vectors
+                    .column(&col_name)
+                    .map_err(|e| WeldrsError::Training {
+                        stage: "predict",
+                        message: format!("Missing gamma column: {e}"),
+                    })?;
             let cast = series
                 .cast(&DataType::Int8)
-                .map_err(|e| WeldrsError::Training(format!("Gamma column cast error: {e}")))?;
-            let gammas = cast
-                .i8()
-                .map_err(|e| WeldrsError::Training(format!("Gamma column type error: {e}")))?;
+                .map_err(|e| WeldrsError::Training {
+                    stage: "predict",
+                    message: format!("Gamma column cast error: {e}"),
+                })?;
+            let gammas = cast.i8().map_err(|e| WeldrsError::Training {
+                stage: "predict",
+                message: format!("Gamma column type error: {e}"),
+            })?;
             Ok(gammas.into_iter().map(|v| v.unwrap_or(-1i8)).collect())
         })
         .collect::<Result<Vec<_>>>()
@@ -178,6 +195,7 @@ pub fn predict_direct(
     threshold_match_weight: Option<f64>,
 ) -> Result<DataFrame> {
     let bf_tables = crate::em::build_bf_tables(comparisons);
+    let log2_bf_tables = crate::em::build_log2_bf_tables(comparisons);
     let prior_log2 = probability::prob_to_bayes_factor(lambda).log2();
     let n_rows = comparison_vectors.height();
     let n_comps = comparisons.len();
@@ -186,62 +204,88 @@ pub fn predict_direct(
     let gamma_columns = extract_gamma_columns_i8(&comparison_vectors, comparisons, gamma_prefix)?;
 
     if threshold_match_probability.is_some() || threshold_match_weight.is_some() {
-        // Threshold path: single-pass row scoring, only materialising kept rows.
+        // Threshold path: parallel scoring, then sequential filter + collect.
+        // Phase 1: score every row in parallel, producing per-row results.
+        let row_scores: Vec<(f64, f64, Vec<f64>)> = (0..n_rows)
+            .into_par_iter()
+            .map(|row| {
+                let mut match_weight = prior_log2;
+                let mut row_bfs = Vec::with_capacity(n_comps);
+                for comp_idx in 0..n_comps {
+                    let gv = gamma_columns[comp_idx][row];
+                    let idx = (gv + 1) as usize;
+                    let bf_table = &bf_tables[comp_idx];
+                    let log2_table = &log2_bf_tables[comp_idx];
+                    let bf = if idx < bf_table.len() {
+                        bf_table[idx]
+                    } else {
+                        1.0
+                    };
+                    row_bfs.push(bf);
+                    match_weight += if idx < log2_table.len() {
+                        log2_table[idx]
+                    } else {
+                        0.0
+                    };
+                }
+                let match_probability = match_probability_from_log2_odds(match_weight);
+                (match_weight, match_probability, row_bfs)
+            })
+            .collect();
+
+        // Phase 2: sequential filter + collect kept rows.
         let mut kept_row_idx: Vec<IdxSize> = Vec::with_capacity(n_rows);
         let mut bf_values: Vec<Vec<f64>> =
             (0..n_comps).map(|_| Vec::with_capacity(n_rows)).collect();
         let mut match_weights: Vec<f64> = Vec::with_capacity(n_rows);
         let mut match_probs: Vec<f64> = Vec::with_capacity(n_rows);
-        let mut row_bfs = vec![1.0f64; n_comps];
 
-        let mut row = 0usize;
-        while row < n_rows {
-            let mut match_weight = prior_log2;
-            for comp_idx in 0..n_comps {
-                let gv = gamma_columns[comp_idx][row];
-                let idx = (gv + 1) as usize;
-                let table = &bf_tables[comp_idx];
-                let bf = if idx < table.len() { table[idx] } else { 1.0 };
-                row_bfs[comp_idx] = bf;
-                match_weight += bf.log2();
-            }
-
-            let match_probability = match_probability_from_log2_odds(match_weight);
+        for (row, (mw, mp, row_bfs)) in row_scores.into_iter().enumerate() {
             let keep = threshold_match_probability
-                .map(|th| match_probability >= th)
+                .map(|th| mp >= th)
                 .unwrap_or(true)
-                && threshold_match_weight
-                    .map(|th| match_weight >= th)
-                    .unwrap_or(true);
+                && threshold_match_weight.map(|th| mw >= th).unwrap_or(true);
 
             if keep {
-                let idx = IdxSize::try_from(row).map_err(|_| {
-                    WeldrsError::Training("Too many rows for Polars index type".into())
+                let idx = IdxSize::try_from(row).map_err(|_| WeldrsError::Training {
+                    stage: "predict",
+                    message: "Too many rows for Polars index type".into(),
                 })?;
                 kept_row_idx.push(idx);
-                match_weights.push(match_weight);
-                match_probs.push(match_probability);
-                for comp_idx in 0..n_comps {
-                    bf_values[comp_idx].push(row_bfs[comp_idx]);
+                match_weights.push(mw);
+                match_probs.push(mp);
+                for (comp_idx, bf) in row_bfs.into_iter().enumerate() {
+                    bf_values[comp_idx].push(bf);
                 }
             }
-            row += 1;
         }
 
         let idx = IdxCa::from_vec("idx".into(), kept_row_idx);
         let mut df = comparison_vectors
             .take(&idx)
-            .map_err(|e| WeldrsError::Training(format!("Row take failed: {e}")))?;
+            .map_err(|e| WeldrsError::Training {
+                stage: "predict",
+                message: format!("Row take failed: {e}"),
+            })?;
 
         for (comp_idx, comp) in comparisons.iter().enumerate() {
             let name = comp.bf_column_name(bf_prefix);
             df.with_column(Column::new(name.into(), &bf_values[comp_idx]))
-                .map_err(|e| WeldrsError::Training(format!("Failed to add BF column: {e}")))?;
+                .map_err(|e| WeldrsError::Training {
+                    stage: "predict",
+                    message: format!("Failed to add BF column: {e}"),
+                })?;
         }
         df.with_column(Column::new("match_weight".into(), &match_weights))
-            .map_err(|e| WeldrsError::Training(format!("Failed to add match_weight: {e}")))?;
+            .map_err(|e| WeldrsError::Training {
+                stage: "predict",
+                message: format!("Failed to add match_weight: {e}"),
+            })?;
         df.with_column(Column::new("match_probability".into(), &match_probs))
-            .map_err(|e| WeldrsError::Training(format!("Failed to add match_probability: {e}")))?;
+            .map_err(|e| WeldrsError::Training {
+                stage: "predict",
+                message: format!("Failed to add match_probability: {e}"),
+            })?;
 
         return Ok(df);
     }
@@ -251,14 +295,23 @@ pub fn predict_direct(
     let mut bf_values: Vec<Vec<f64>> = Vec::with_capacity(n_comps);
     let mut match_weights = vec![prior_log2; n_rows];
     for comp_idx in 0..n_comps {
-        let table = &bf_tables[comp_idx];
+        let bf_table = &bf_tables[comp_idx];
+        let log2_table = &log2_bf_tables[comp_idx];
         let gammas = &gamma_columns[comp_idx];
         let mut bfs = Vec::with_capacity(n_rows);
         for (row, &gv) in gammas.iter().enumerate() {
             let idx = (gv + 1) as usize;
-            let bf = if idx < table.len() { table[idx] } else { 1.0 };
+            let bf = if idx < bf_table.len() {
+                bf_table[idx]
+            } else {
+                1.0
+            };
             bfs.push(bf);
-            match_weights[row] += bf.log2();
+            match_weights[row] += if idx < log2_table.len() {
+                log2_table[idx]
+            } else {
+                0.0
+            };
         }
         bf_values.push(bfs);
     }
@@ -271,12 +324,21 @@ pub fn predict_direct(
     for (comp_idx, comp) in comparisons.iter().enumerate() {
         let name = comp.bf_column_name(bf_prefix);
         df.with_column(Column::new(name.into(), &bf_values[comp_idx]))
-            .map_err(|e| WeldrsError::Training(format!("Failed to add BF column: {e}")))?;
+            .map_err(|e| WeldrsError::Training {
+                stage: "predict",
+                message: format!("Failed to add BF column: {e}"),
+            })?;
     }
     df.with_column(Column::new("match_weight".into(), &match_weights))
-        .map_err(|e| WeldrsError::Training(format!("Failed to add match_weight: {e}")))?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "predict",
+            message: format!("Failed to add match_weight: {e}"),
+        })?;
     df.with_column(Column::new("match_probability".into(), &match_probs))
-        .map_err(|e| WeldrsError::Training(format!("Failed to add match_probability: {e}")))?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "predict",
+            message: format!("Failed to add match_probability: {e}"),
+        })?;
 
     Ok(df)
 }

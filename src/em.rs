@@ -89,7 +89,10 @@ pub fn expectation_maximization(
         .group_by(group_exprs)
         .agg([len().alias("__count")])
         .collect()
-        .map_err(|e| WeldrsError::Training(format!("Failed to count agreement patterns: {e}")))?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "em",
+            message: format!("Failed to count agreement patterns: {e}"),
+        })?;
 
     // Pre-extract gamma columns once — shared across all E/M steps.
     let gamma_columns: Vec<Vec<i8>> = comparisons
@@ -98,10 +101,14 @@ pub fn expectation_maximization(
             let col_name = comp.gamma_column_name(gamma_prefix);
             let series = pattern_counts
                 .column(&col_name)
-                .map_err(|e| WeldrsError::Training(format!("Missing gamma column: {e}")))?;
-            let gammas = series
-                .i8()
-                .map_err(|e| WeldrsError::Training(format!("Gamma column type error: {e}")))?;
+                .map_err(|e| WeldrsError::Training {
+                    stage: "em",
+                    message: format!("Missing gamma column: {e}"),
+                })?;
+            let gammas = series.i8().map_err(|e| WeldrsError::Training {
+                stage: "em",
+                message: format!("Gamma column type error: {e}"),
+            })?;
             Ok(gammas.into_iter().map(|v| v.unwrap_or(-1i8)).collect())
         })
         .collect::<Result<Vec<_>>>()?;
@@ -109,10 +116,16 @@ pub fn expectation_maximization(
     // Pre-extract counts once.
     let count_series = pattern_counts
         .column("__count")
-        .map_err(|e| WeldrsError::Training(format!("Missing count column: {e}")))?;
+        .map_err(|e| WeldrsError::Training {
+            stage: "em",
+            message: format!("Missing count column: {e}"),
+        })?;
     let counts: Vec<f64> = count_series
         .u32()
-        .map_err(|e| WeldrsError::Training(format!("Count column type error: {e}")))?
+        .map_err(|e| WeldrsError::Training {
+            stage: "em",
+            message: format!("Count column type error: {e}"),
+        })?
         .into_no_null_iter()
         .map(|v| v as f64)
         .collect();
@@ -132,7 +145,7 @@ pub fn expectation_maximization(
         let match_probs = e_step(&gamma_columns, &log_bf_tables, &comparisons, current_lambda)?;
 
         // M-step: update parameters in place (no Comparison cloning).
-        let (new_lambda, max_change) = m_step(
+        let (new_lambda, max_change, _total_match) = m_step(
             &gamma_columns,
             &counts,
             &match_probs,
@@ -195,6 +208,38 @@ pub fn build_bf_tables(comparisons: &[Comparison]) -> Vec<Vec<f64>> {
                         1.0
                     } else {
                         level.bayes_factor().unwrap_or(1.0)
+                    };
+                }
+            }
+            table
+        })
+        .collect()
+}
+
+/// Build a log2-domain Bayes factor lookup table.
+///
+/// `log2_bf_tables[comp_idx][gamma_val + 1] = log2(bayes_factor)`.
+/// Used by `predict_direct()` to replace per-row `bf.log2()` calls with
+/// O(1) table lookups.
+pub fn build_log2_bf_tables(comparisons: &[Comparison]) -> Vec<Vec<f64>> {
+    comparisons
+        .iter()
+        .map(|comp| {
+            let max_cv = comp
+                .comparison_levels
+                .iter()
+                .map(|l| l.comparison_vector_value)
+                .max()
+                .unwrap_or(0);
+            let size = (max_cv + 2) as usize;
+            let mut table = vec![0.0f64; size]; // log2(1.0) = 0.0
+            for level in &comp.comparison_levels {
+                let idx = (level.comparison_vector_value + 1) as usize;
+                if idx < size {
+                    table[idx] = if level.is_null_level {
+                        0.0 // log2(1.0) — neutral
+                    } else {
+                        level.bayes_factor().unwrap_or(1.0).log2()
                     };
                 }
             }
@@ -322,14 +367,24 @@ const PROB_CLAMP_MAX: f64 = 1.0 - 1e-6;
 /// indexed by gamma value. Updates comparisons in place instead of cloning,
 /// eliminating String allocation overhead from the parallel phase.
 ///
-/// Returns (updated lambda, max parameter change).
+/// Returns (updated lambda, max parameter change, weighted match total).
 fn m_step(
     gamma_columns: &[Vec<i8>],
     counts: &[f64],
     match_probs: &[f64],
     comparisons: &mut [Comparison],
     null_tables: &[Vec<bool>],
-) -> Result<(f64, f64)> {
+) -> Result<(f64, f64, f64)> {
+    // Compute total_match and total_count once, shared with the lambda update
+    // below. This avoids a redundant O(n_patterns) pass after the parallel
+    // per-comparison section.
+    let mut total_match = 0.0_f64;
+    let mut total_count = 0.0_f64;
+    for (mp, c) in match_probs.iter().zip(counts.iter()) {
+        total_match += mp * c;
+        total_count += c;
+    }
+
     // Parallel: compute updates without cloning comparisons.
     let updates: Vec<MStepCompUpdate> = comparisons
         .par_iter()
@@ -442,20 +497,14 @@ fn m_step(
         }
     }
 
-    // Update lambda.
-    let total_count: f64 = counts.iter().sum();
-    let total_match: f64 = match_probs
-        .iter()
-        .zip(counts.iter())
-        .map(|(mp, c)| mp * c)
-        .sum();
+    // Update lambda using pre-computed totals.
     let new_lambda = if total_count > 0.0 {
         total_match / total_count
     } else {
         lambda_from_comparisons(comparisons)
     };
 
-    Ok((new_lambda, max_change))
+    Ok((new_lambda, max_change, total_match))
 }
 
 fn lambda_from_comparisons(_comparisons: &[Comparison]) -> f64 {
