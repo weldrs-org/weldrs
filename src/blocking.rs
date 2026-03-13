@@ -29,6 +29,7 @@
 
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
+use log::warn;
 
 use crate::error::Result;
 use crate::settings::LinkType;
@@ -156,7 +157,7 @@ pub fn generate_blocked_pairs(
     }
 
     if all_pairs.is_empty() {
-        eprintln!(
+        warn!(
             "weldrs warning: no blocking rules provided — generating all-pairs cross-join. \
              This is O(n²) and may be very slow or OOM for large datasets."
         );
