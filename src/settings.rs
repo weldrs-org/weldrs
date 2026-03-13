@@ -310,6 +310,65 @@ impl SettingsBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::comparison::ComparisonBuilder;
+    use crate::error::WeldrsError;
+
+    fn simple_comparison(column: &str) -> Comparison {
+        ComparisonBuilder::new(column)
+            .null_level()
+            .exact_match_level()
+            .else_level()
+            .build()
+            .expect("comparison should build successfully")
+    }
+
+    #[test]
+    fn build_rejects_input_suffix_collisions() {
+        // One comparison uses "name", another uses "name_l".
+        // The suffixed set will contain "name_l" from the first comparison,
+        // so the second comparison's input column "name_l" collides.
+        let settings_result = Settings::builder(LinkType::DedupeOnly)
+            .comparison(simple_comparison("name"))
+            .comparison(simple_comparison("name_l"))
+            .build();
+
+        match settings_result {
+            Err(WeldrsError::Config(_)) => {}
+            other => panic!("expected WeldrsError::Config due to input suffix collision, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_rejects_gamma_column_collisions_with_suffixed_inputs() {
+        // Construct comparisons such that a generated gamma column name
+        // collides with a suffixed input column name.
+        //
+        // Assuming the default gamma_prefix "gamma_" and that the output
+        // column name is derived from the input column:
+        // - For a comparison on "gamma_col", a suffixed name "gamma_col_l"
+        //   will be generated.
+        // - For a comparison on "col_l", the gamma column will be
+        //   "gamma_col_l", colliding with the suffixed name above.
+        let settings_result = Settings::builder(LinkType::DedupeOnly)
+            .comparison(simple_comparison("gamma_col"))
+            .comparison(simple_comparison("col_l"))
+            .build();
+
+        match settings_result {
+            Err(WeldrsError::Config(_)) => {}
+            other => panic!(
+                "expected WeldrsError::Config due to gamma/suffixed column collision, got: {:?}",
+                other
+            ),
+        }
+    }
+}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
     use crate::test_helpers;
 
     #[test]
