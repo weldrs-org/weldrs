@@ -122,8 +122,39 @@ fn levenshtein_within_scalar(a: &str, b: &str, max_dist: u32) -> bool {
         return levenshtein_within_ascii_fast(a.as_bytes(), b.as_bytes(), max_dist);
     }
 
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
+    // Stack-allocated char buffers for strings up to 128 chars, avoiding
+    // heap allocation for typical name data. Falls back to Vec for longer strings.
+    let mut a_buf = ['\0'; 128];
+    let mut b_buf = ['\0'; 128];
+    let mut a_len = 0usize;
+    let mut b_len = 0usize;
+    for ch in a.chars() {
+        if a_len < 128 {
+            a_buf[a_len] = ch;
+        }
+        a_len += 1;
+    }
+    for ch in b.chars() {
+        if b_len < 128 {
+            b_buf[b_len] = ch;
+        }
+        b_len += 1;
+    }
+
+    let (a_chars_vec, b_chars_vec);
+    let a_chars: &[char] = if a_len <= 128 {
+        &a_buf[..a_len]
+    } else {
+        a_chars_vec = a.chars().collect::<Vec<char>>();
+        &a_chars_vec
+    };
+    let b_chars: &[char] = if b_len <= 128 {
+        &b_buf[..b_len]
+    } else {
+        b_chars_vec = b.chars().collect::<Vec<char>>();
+        &b_chars_vec
+    };
+
     let m = a_chars.len();
     let n = b_chars.len();
 

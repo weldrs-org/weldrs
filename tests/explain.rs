@@ -98,7 +98,7 @@ fn test_model_summary_from_trained_linker() {
     // Prior matches settings
     assert!(
         (summary.probability_two_random_records_match
-            - linker.settings.probability_two_random_records_match)
+            - linker.settings().probability_two_random_records_match)
             .abs()
             < 1e-10
     );

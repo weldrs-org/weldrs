@@ -23,8 +23,14 @@ pub enum WeldrsError {
     #[error("Configuration error: {0}")]
     Config(String),
     /// An error during model training (EM, u-estimation, lambda estimation).
-    #[error("Training error: {0}")]
-    Training(String),
+    #[error("{stage}: {message}")]
+    Training {
+        /// Which pipeline stage produced the error (e.g. "em", "predict",
+        /// "blocking", "clustering", "estimate_u", "estimate_lambda").
+        stage: &'static str,
+        /// Human-readable description of what went wrong.
+        message: String,
+    },
     /// JSON serialization or deserialization failed.
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),

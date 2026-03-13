@@ -94,7 +94,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // ── Step 7: Print trained parameters ─────────────────────────────
     println!("\n--- Trained Parameters ---");
-    for comp in &restored_linker.settings.comparisons {
+    for comp in &restored_linker.settings().comparisons {
         println!("\nComparison: {}", comp.output_column_name);
         for level in &comp.comparison_levels {
             if level.is_null_level {

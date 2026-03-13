@@ -156,6 +156,10 @@ pub fn generate_blocked_pairs(
     }
 
     if all_pairs.is_empty() {
+        eprintln!(
+            "weldrs warning: no blocking rules provided — generating all-pairs cross-join. \
+             This is O(n²) and may be very slow or OOM for large datasets."
+        );
         return Ok(left
             .cross_join(right, None)
             .filter(col(uid_l.as_str()).lt(col(uid_r.as_str())))

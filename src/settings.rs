@@ -81,9 +81,17 @@ impl Default for TrainingSettings {
     }
 }
 
+fn default_version() -> u32 {
+    1
+}
+
 /// Full settings for a weldrs model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    /// Schema version for forward-compatible deserialization.
+    /// Old JSON without this field will default to version 1.
+    #[serde(default = "default_version")]
+    pub version: u32,
     /// Whether this is deduplication, linkage, or both.
     pub link_type: LinkType,
     /// The comparisons that define how record pairs are scored.
@@ -223,7 +231,39 @@ impl SettingsBuilder {
                 "At least one comparison is required".into(),
             ));
         }
+
+        // Validate that input column names don't collide with generated
+        // suffixed/prefixed names.
+        {
+            let mut suffixed: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for comp in &self.comparisons {
+                for col in &comp.input_columns {
+                    suffixed.insert(format!("{col}_l"));
+                    suffixed.insert(format!("{col}_r"));
+                }
+            }
+            for comp in &self.comparisons {
+                for col in &comp.input_columns {
+                    if suffixed.contains(col.as_str()) {
+                        return Err(WeldrsError::Config(format!(
+                            "Input column '{col}' collides with a generated suffixed column name. \
+                             Avoid columns ending in '_l' or '_r'."
+                        )));
+                    }
+                }
+                let gamma_name = format!("{}{}", self.gamma_prefix, comp.output_column_name);
+                for other_col in suffixed.iter() {
+                    if *other_col == gamma_name {
+                        return Err(WeldrsError::Config(format!(
+                            "Generated gamma column '{gamma_name}' collides with a suffixed input column."
+                        )));
+                    }
+                }
+            }
+        }
+
         Ok(Settings {
+            version: 1,
             link_type: self.link_type,
             comparisons: self.comparisons,
             blocking_rules: self.blocking_rules,

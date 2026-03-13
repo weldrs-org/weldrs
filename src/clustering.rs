@@ -124,25 +124,25 @@ pub fn cluster_pairwise_predictions(
 ) -> Result<DataFrame> {
     let mp = predictions
         .column("match_probability")
-        .map_err(|e| WeldrsError::Training(format!("Missing match_probability: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "clustering", message: format!("Missing match_probability: {e}") })?;
     let match_probs = mp
         .f64()
-        .map_err(|e| WeldrsError::Training(format!("match_probability type error: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "clustering", message: format!("match_probability type error: {e}") })?;
 
     let uid_l_series = predictions
         .column(unique_id_l_col)
-        .map_err(|e| WeldrsError::Training(format!("Missing {unique_id_l_col}: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "clustering", message: format!("Missing {unique_id_l_col}: {e}") })?;
     let uid_r_series = predictions
         .column(unique_id_r_col)
-        .map_err(|e| WeldrsError::Training(format!("Missing {unique_id_r_col}: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "clustering", message: format!("Missing {unique_id_r_col}: {e}") })?;
 
     // We work with i64 IDs. If the column is a different integer type, cast it.
     let uid_l = uid_l_series
         .cast(&DataType::Int64)
-        .map_err(|e| WeldrsError::Training(format!("Cannot cast {unique_id_l_col} to i64: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "clustering", message: format!("Cannot cast {unique_id_l_col} to i64: {e}") })?;
     let uid_r = uid_r_series
         .cast(&DataType::Int64)
-        .map_err(|e| WeldrsError::Training(format!("Cannot cast {unique_id_r_col} to i64: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "clustering", message: format!("Cannot cast {unique_id_r_col} to i64: {e}") })?;
     let uid_l_ca = uid_l.i64().unwrap();
     let uid_r_ca = uid_r.i64().unwrap();
 
@@ -193,7 +193,7 @@ pub fn cluster_pairwise_predictions(
             Column::new("cluster_id".into(), &out_clusters),
         ],
     )
-    .map_err(|e| WeldrsError::Training(format!("Failed to build cluster DataFrame: {e}")))?;
+    .map_err(|e| WeldrsError::Training { stage: "clustering", message: format!("Failed to build cluster DataFrame: {e}") })?;
 
     Ok(df)
 }

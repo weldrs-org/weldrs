@@ -22,8 +22,20 @@ use crate::settings::Settings;
 /// Holds the model settings (including trained parameters) and provides
 /// methods for training, prediction, and clustering.
 pub struct Linker {
-    /// The model configuration and trained parameters.
-    pub settings: Settings,
+    settings: Settings,
+}
+
+impl Linker {
+    /// Read-only access to the model settings.
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// Mutable access to the model settings for advanced users who need
+    /// to modify parameters directly.
+    pub fn settings_mut(&mut self) -> &mut Settings {
+        &mut self.settings
+    }
 }
 
 fn lazy_row_count(lf: &LazyFrame) -> Result<usize> {
@@ -31,19 +43,19 @@ fn lazy_row_count(lf: &LazyFrame) -> Result<usize> {
         .clone()
         .select([len().alias("__n_rows")])
         .collect()
-        .map_err(|e| WeldrsError::Training(format!("Failed to count candidate pairs: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Failed to count candidate pairs: {e}") })?;
     let series = row_count
         .column("__n_rows")
-        .map_err(|e| WeldrsError::Training(format!("Missing row-count column: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Missing row-count column: {e}") })?;
     let cast = series
         .cast(&DataType::UInt64)
-        .map_err(|e| WeldrsError::Training(format!("Row-count cast failed: {e}")))?;
+        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Row-count cast failed: {e}") })?;
     let n = cast
         .u64()
-        .map_err(|e| WeldrsError::Training(format!("Row-count type error: {e}")))?
+        .map_err(|e| WeldrsError::Training { stage: "linker", message: format!("Row-count type error: {e}") })?
         .get(0)
-        .ok_or_else(|| WeldrsError::Training("Row-count query returned no rows".into()))?;
-    usize::try_from(n).map_err(|_| WeldrsError::Training("Row count exceeds usize".into()))
+        .ok_or_else(|| WeldrsError::Training { stage: "linker", message: "Row-count query returned no rows".into() })?;
+    usize::try_from(n).map_err(|_| WeldrsError::Training { stage: "linker", message: "Row count exceeds usize".into() })
 }
 
 impl Linker {
@@ -149,12 +161,24 @@ impl Linker {
         lf: &LazyFrame,
         max_pairs: usize,
     ) -> Result<()> {
+        self.estimate_u_using_random_sampling_with_seed(lf, max_pairs, Some(42))
+    }
+
+    /// Like [`estimate_u_using_random_sampling`](Self::estimate_u_using_random_sampling)
+    /// but with a configurable random seed. Pass `None` for non-deterministic sampling.
+    pub fn estimate_u_using_random_sampling_with_seed(
+        &mut self,
+        lf: &LazyFrame,
+        max_pairs: usize,
+        seed: Option<u64>,
+    ) -> Result<()> {
         estimate_u::estimate_u_using_random_sampling(
             lf,
             &mut self.settings.comparisons,
             max_pairs,
             &self.settings.gamma_prefix,
             &self.settings.unique_id_column,
+            seed,
         )
     }
 
@@ -332,9 +356,9 @@ impl Linker {
             ),
             predict::PredictMode::Direct => {
                 let cv_df = cv.collect().map_err(|e| {
-                    WeldrsError::Training(format!(
+                    WeldrsError::Training { stage: "linker", message: format!(
                         "Failed to materialize comparison vectors for direct scoring: {e}"
-                    ))
+                    ) }
                 })?;
                 let scored = predict::predict_direct(
                     cv_df,
@@ -552,8 +576,8 @@ mod tests {
     #[test]
     fn test_linker_new() {
         let linker = make_linker();
-        assert_eq!(linker.settings.comparisons.len(), 2);
-        assert_eq!(linker.settings.link_type, LinkType::DedupeOnly);
+        assert_eq!(linker.settings().comparisons.len(), 2);
+        assert_eq!(linker.settings().link_type, LinkType::DedupeOnly);
     }
 
     #[test]
@@ -563,13 +587,13 @@ mod tests {
         let restored = Linker::load_settings_json(&json).unwrap();
 
         assert_eq!(
-            restored.settings.comparisons.len(),
-            linker.settings.comparisons.len()
+            restored.settings().comparisons.len(),
+            linker.settings().comparisons.len()
         );
-        assert_eq!(restored.settings.link_type, linker.settings.link_type);
+        assert_eq!(restored.settings().link_type, linker.settings().link_type);
         assert_eq!(
-            restored.settings.unique_id_column,
-            linker.settings.unique_id_column
+            restored.settings().unique_id_column,
+            linker.settings().unique_id_column
         );
     }
 
@@ -578,7 +602,7 @@ mod tests {
         let mut linker = make_linker();
         let lf = test_helpers::make_test_df().lazy();
 
-        let initial_lambda = linker.settings.probability_two_random_records_match;
+        let initial_lambda = linker.settings().probability_two_random_records_match;
 
         linker
             .estimate_probability_two_random_records_match(
@@ -589,7 +613,7 @@ mod tests {
             .unwrap();
 
         assert_ne!(
-            linker.settings.probability_two_random_records_match, initial_lambda,
+            linker.settings().probability_two_random_records_match, initial_lambda,
             "Lambda should change after estimation"
         );
     }
