@@ -28,47 +28,54 @@
 //! use weldrs::prelude::*;
 //!
 //! fn main() -> Result<()> {
+//!     // 1. Prepare your data as a Polars DataFrame
 //!     let df = df!(
-//!         "unique_id"  => [1i64, 2, 3, 4],
-//!         "first_name" => ["John", "Jane", "Jon", "Jane"],
-//!         "last_name"    => ["Smith", "Doe", "Smith", "Doe"],
+//!         "unique_id"  => [1i64, 2, 3, 4, 5, 6, 7, 8],
+//!         "first_name" => ["John", "Jane", "Jon", "Jane", "Sam", "Lana", "Mac", "Yang"],
+//!         "last_name"    => ["Smith", "Doe", "Smith", "Doe", "Smith", "Jones", "Smith", "Xu"],
 //!     )?;
 //!
+//!     // 2. Define comparisons and build settings
 //!     let settings = Settings::builder(LinkType::DedupeOnly)
 //!         .comparison(
 //!             ComparisonBuilder::new("first_name")
 //!                 .null_level()
 //!                 .exact_match_level()
 //!                 .jaro_winkler_level(0.88)
-//!                 .else_level()
-//!                 .build()?,
-//!         )
-//!         .comparison(
-//!             ComparisonBuilder::new("last_name")
-//!                 .null_level()
-//!                 .exact_match_level()
-//!                 .else_level()
-//!                 .build()?,
-//!         )
-//!         .blocking_rule(BlockingRule::on(&["last_name"]))
-//!         .build()?;
+//!                .else_level()
+//!                .build()?,
+//!        )
+//!        .comparison(
+//!            ComparisonBuilder::new("last_name")
+//!                .null_level()
+//!                .exact_match_level()
+//!                .else_level()
+//!                .build()?,
+//!        )
+//!        .blocking_rule(BlockingRule::on(&["last_name"]))
+//!        .build()?;
 //!
-//!     let mut linker = Linker::new(settings)?;
-//!     let lf = df.lazy();
+//!    // 3. Train the model
+//!    let mut linker = Linker::new(settings)?;
+//!    let lf = df.lazy();
 //!
-//!     linker.estimate_probability_two_random_records_match(
-//!         &lf,
-//!         &[BlockingRule::on(&["first_name", "last_name"])],
-//!         1.0,
-//!     )?;
-//!     linker.estimate_u_using_random_sampling(&lf, 200)?;
-//!     linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
+//!    linker.estimate_probability_two_random_records_match(
+//!        &lf,
+//!        &[BlockingRule::on(&["first_name", "last_name"])],
+//!        1.0,
+//!    )?;
+//!    linker.estimate_u_using_random_sampling(&lf, 200)?;
+//!    linker.estimate_parameters_using_em(&lf, &BlockingRule::on(&["last_name"]))?;
 //!
-//!     let predictions = linker.predict(&lf, None)?.collect()?;
-//!     let clusters = linker.cluster_pairwise_predictions(&predictions, 0.5)?;
-//!     println!("{clusters}");
-//!     Ok(())
-//! }
+//!    // 4. Predict — score all candidate pairs
+//!    let predictions = linker.predict(&lf, None)?.collect()?;
+//!
+//!    // 5. Cluster — group linked records
+//!    let clusters = linker.cluster_pairwise_predictions(&predictions, 0.5)?;
+//!    println!("{clusters}");
+//!
+//!    Ok(())
+//!}
 //! ```
 //!
 //! # Modules
