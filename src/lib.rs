@@ -23,25 +23,25 @@
 //! # Quick example
 //!
 //! ```no_run
-//!use polars::prelude::*;
-//!use weldrs::comparison::ComparisonBuilder;
-//!use weldrs::prelude::*;
+//! use polars::prelude::*;
+//! use weldrs::comparison::ComparisonBuilder;
+//! use weldrs::prelude::*;
 //!
-//!fn main() -> Result<()> {
-//!    // 1. Prepare your data as a Polars DataFrame
-//!    let df = df!(
-//!        "unique_id"  => [1i64, 2, 3, 4, 5, 6, 7, 8],
-//!        "first_name" => ["John", "Jane", "Jon", "Jane", "Sam", "Lana", "Mac", "Yang"],
-//!        "last_name"    => ["Smith", "Doe", "Smith", "Doe", "Smith", "Jones", "Smith", "Xu"],
-//!    )?;
+//! fn main() -> Result<()> {
+//!     // 1. Prepare your data as a Polars DataFrame
+//!     let df = df!(
+//!         "unique_id"  => [1i64, 2, 3, 4, 5, 6, 7, 8],
+//!         "first_name" => ["John", "Jane", "Jon", "Jane", "Sam", "Lana", "Mac", "Yang"],
+//!         "last_name"    => ["Smith", "Doe", "Smith", "Doe", "Smith", "Jones", "Smith", "Xu"],
+//!     )?;
 //!
-//!    // 2. Define comparisons and build settings
-//!    let settings = Settings::builder(LinkType::DedupeOnly)
-//!        .comparison(
-//!            ComparisonBuilder::new("first_name")
-//!                .null_level()
-//!                .exact_match_level()
-//!                .jaro_winkler_level(0.88)
+//!     // 2. Define comparisons and build settings
+//!     let settings = Settings::builder(LinkType::DedupeOnly)
+//!         .comparison(
+//!             ComparisonBuilder::new("first_name")
+//!                 .null_level()
+//!                 .exact_match_level()
+//!                 .jaro_winkler_level(0.88)
 //!                .else_level()
 //!                .build()?,
 //!        )
