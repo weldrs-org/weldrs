@@ -36,6 +36,7 @@ pub fn estimate_probability_two_random_records_match(
     deterministic_rules: &[BlockingRule],
     link_type: &LinkType,
     unique_id_col: &str,
+    source_dataset_column: Option<&str>,
     recall: f64,
 ) -> Result<f64> {
     if deterministic_rules.is_empty() {
@@ -61,9 +62,49 @@ pub fn estimate_probability_two_random_records_match(
     let total_pairs = match link_type {
         LinkType::DedupeOnly | LinkType::LinkAndDedupe => n * (n - 1.0) / 2.0,
         LinkType::LinkOnly => {
-            // For link-only, we'd need two datasets. For now, assume
-            // the user has concatenated them and we use n*(n-1)/2.
-            n * (n - 1.0) / 2.0
+            let src_col = source_dataset_column.ok_or_else(|| {
+                WeldrsError::Config(
+                    "LinkOnly mode requires source_dataset_column to be set for lambda estimation"
+                        .to_string(),
+                )
+            })?;
+            // Count records per source dataset to compute n_a * n_b.
+            let counts = collected
+                .column(src_col)
+                .map_err(|e| WeldrsError::Training {
+                    stage: "estimate_lambda",
+                    message: format!("Failed to access source column '{src_col}': {e}"),
+                })?
+                .as_materialized_series()
+                .value_counts(false, false, PlSmallStr::from_static("count"), false)
+                .map_err(|e| WeldrsError::Training {
+                    stage: "estimate_lambda",
+                    message: format!("Failed to count source datasets: {e}"),
+                })?;
+            let count_col = counts.column("count").map_err(|e| WeldrsError::Training {
+                stage: "estimate_lambda",
+                message: format!("Unexpected value_counts schema: {e}"),
+            })?;
+            let count_vals: Vec<f64> = count_col
+                .cast(&DataType::Float64)
+                .map_err(|e| WeldrsError::Training {
+                    stage: "estimate_lambda",
+                    message: format!("Failed to cast counts: {e}"),
+                })?
+                .f64()
+                .map_err(|e| WeldrsError::Training {
+                    stage: "estimate_lambda",
+                    message: format!("Failed to read counts as f64: {e}"),
+                })?
+                .into_no_null_iter()
+                .collect();
+            if count_vals.len() != 2 {
+                return Err(WeldrsError::Config(format!(
+                    "LinkOnly expects exactly 2 source datasets, found {}",
+                    count_vals.len()
+                )));
+            }
+            count_vals[0] * count_vals[1]
         }
     };
 
@@ -76,6 +117,9 @@ pub fn estimate_probability_two_random_records_match(
     let needed_cols: std::collections::HashSet<&str> = {
         let mut s = std::collections::HashSet::new();
         s.insert(unique_id_col);
+        if let Some(src_col) = source_dataset_column {
+            s.insert(src_col);
+        }
         for rule in deterministic_rules {
             for c in &rule.columns {
                 s.insert(c.as_str());
@@ -114,7 +158,25 @@ pub fn estimate_probability_two_random_records_match(
             LinkType::DedupeOnly | LinkType::LinkAndDedupe => {
                 joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str())))
             }
-            LinkType::LinkOnly => joined.filter(col(uid_l.as_str()).neq(col(uid_r.as_str()))),
+            LinkType::LinkOnly => {
+                // source_dataset_column is guaranteed Some here (we error above otherwise).
+                match source_dataset_column {
+                    Some(src_col) => {
+                        let src_l = format!("{src_col}_l");
+                        let src_r = format!("{src_col}_r");
+                        joined.filter(
+                            col(src_l.as_str())
+                                .neq(col(src_r.as_str()))
+                                .and(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
+                        )
+                    }
+                    None => {
+                        return Err(WeldrsError::Config(
+                            "LinkOnly mode requires source_dataset_column".to_string(),
+                        ));
+                    }
+                }
+            }
         };
 
         all_pairs.push(filtered.select([col(uid_l.as_str()), col(uid_r.as_str())]));
@@ -170,6 +232,7 @@ mod tests {
             &rules,
             &LinkType::DedupeOnly,
             "unique_id",
+            None,
             1.0, // recall = 1.0
         )
         .unwrap();
@@ -198,6 +261,7 @@ mod tests {
             &rules,
             &LinkType::DedupeOnly,
             "unique_id",
+            None,
             1.0,
         )
         .unwrap();
@@ -213,6 +277,7 @@ mod tests {
             &[],
             &LinkType::DedupeOnly,
             "unique_id",
+            None,
             1.0,
         );
         assert!(result.is_err());
@@ -234,6 +299,7 @@ mod tests {
             &rules,
             &LinkType::DedupeOnly,
             "unique_id",
+            None,
             1.0,
         );
         assert!(result.is_err());
@@ -241,5 +307,57 @@ mod tests {
             WeldrsError::Training { .. } => {}
             other => panic!("Expected Training error, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_lambda_link_only_requires_source_column() {
+        let lf = test_lf();
+        let rules = vec![BlockingRule::on(&["first_name", "last_name"])];
+        let result = estimate_probability_two_random_records_match(
+            &lf,
+            &rules,
+            &LinkType::LinkOnly,
+            "unique_id",
+            None, // no source_dataset_column
+            1.0,
+        );
+        assert!(
+            result.is_err(),
+            "LinkOnly without source column should error"
+        );
+    }
+
+    #[test]
+    fn test_lambda_link_only_with_source_column() {
+        use polars::prelude::*;
+        // Two "datasets" concatenated, distinguished by source_dataset
+        let lf = df!(
+            "unique_id" => [1i64, 2, 3, 101, 102, 103],
+            "first_name" => ["John", "Jane", "Bob", "John", "Jane", "Alice"],
+            "last_name" => ["Smith", "Doe", "Williams", "Smith", "Doe", "Brown"],
+            "source_dataset" => ["a", "a", "a", "b", "b", "b"],
+        )
+        .unwrap()
+        .lazy();
+
+        let rules = vec![BlockingRule::on(&["first_name", "last_name"])];
+        let lambda = estimate_probability_two_random_records_match(
+            &lf,
+            &rules,
+            &LinkType::LinkOnly,
+            "unique_id",
+            Some("source_dataset"),
+            1.0,
+        )
+        .unwrap();
+
+        // n_a=3, n_b=3, total_pairs = 3*3 = 9
+        // Matches: (John Smith, John Smith) and (Jane Doe, Jane Doe) = 2
+        // lambda = 2 / 9 ≈ 0.222
+        let expected = 2.0 / 9.0;
+        assert!(
+            (lambda - expected).abs() < 1e-6,
+            "Expected lambda ≈ {expected}, got {lambda}"
+        );
     }
 }

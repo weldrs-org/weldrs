@@ -27,7 +27,6 @@
 //!     .with_description("city + state block");
 //! ```
 
-use log::warn;
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -87,6 +86,7 @@ pub fn generate_blocked_pairs(
     blocking_rules: &[BlockingRule],
     link_type: &LinkType,
     unique_id_col: &str,
+    source_dataset_column: Option<&str>,
 ) -> Result<LazyFrame> {
     let uid_l = format!("{unique_id_col}_l");
     let uid_r = format!("{unique_id_col}_r");
@@ -143,9 +143,18 @@ pub fn generate_blocked_pairs(
         let filtered = match link_type {
             LinkType::DedupeOnly => joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
             LinkType::LinkOnly => {
-                // For link-only the source dataset column must differ.
-                // If no source column exists, use uid inequality as a fallback.
-                joined.filter(col(uid_l.as_str()).neq(col(uid_r.as_str())))
+                if let Some(src_col) = source_dataset_column {
+                    let src_l = format!("{src_col}_l");
+                    let src_r = format!("{src_col}_r");
+                    joined.filter(
+                        col(src_l.as_str())
+                            .neq(col(src_r.as_str()))
+                            .and(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
+                    )
+                } else {
+                    // Fallback: uid inequality when no source column is set.
+                    joined.filter(col(uid_l.as_str()).neq(col(uid_r.as_str())))
+                }
             }
             LinkType::LinkAndDedupe => joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
         };
@@ -157,14 +166,12 @@ pub fn generate_blocked_pairs(
     }
 
     if all_pairs.is_empty() {
-        warn!(
-            "weldrs warning: no blocking rules provided — generating all-pairs cross-join. \
-             This is O(n²) and may be very slow or OOM for large datasets."
-        );
-        return Ok(left
-            .cross_join(right, None)
-            .filter(col(uid_l.as_str()).lt(col(uid_r.as_str())))
-            .with_column(lit(0u32).alias("match_key")));
+        return Err(crate::error::WeldrsError::Config(
+            "No blocking rules provided. At least one BlockingRule is required to generate \
+             candidate pairs. If you truly need all-pairs comparison, add a blocking rule \
+             on a column with a single constant value."
+                .to_string(),
+        ));
     }
 
     // Incremental deduplication via anti-join: each subsequent rule's pairs
@@ -204,7 +211,7 @@ mod tests {
     fn test_dedupe_only_pairs() {
         let lf = small_lazy_frame();
         let rules = vec![BlockingRule::on(&["city"])];
-        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id", None)
             .unwrap()
             .collect()
             .unwrap();
@@ -218,16 +225,21 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_join_fallback() {
+    fn test_no_blocking_rules_errors() {
         let lf = small_lazy_frame();
-        // Empty rules → cross-join fallback
-        let pairs = generate_blocked_pairs(&lf, &[], &LinkType::DedupeOnly, "unique_id")
-            .unwrap()
-            .collect()
-            .unwrap();
-
-        // 4 records → C(4,2) = 6 pairs
-        assert_eq!(pairs.height(), 6);
+        let result = generate_blocked_pairs(&lf, &[], &LinkType::DedupeOnly, "unique_id", None);
+        assert!(
+            result.is_err(),
+            "Expected Config error when no blocking rules provided"
+        );
+        let err_msg = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => unreachable!(),
+        };
+        assert!(
+            err_msg.contains("blocking rule"),
+            "Error should mention blocking rules, got: {err_msg}"
+        );
     }
 
     #[test]
@@ -238,7 +250,7 @@ mod tests {
             BlockingRule::on(&["city"]),
             BlockingRule::on(&["first_name"]),
         ];
-        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id", None)
             .unwrap()
             .collect()
             .unwrap();
@@ -260,7 +272,7 @@ mod tests {
     fn test_match_key_assignment() {
         let lf = small_lazy_frame();
         let rules = vec![BlockingRule::on(&["city"])];
-        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id", None)
             .unwrap()
             .collect()
             .unwrap();
@@ -277,7 +289,7 @@ mod tests {
     fn test_suffixed_columns() {
         let lf = small_lazy_frame();
         let rules = vec![BlockingRule::on(&["city"])];
-        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id")
+        let pairs = generate_blocked_pairs(&lf, &rules, &LinkType::DedupeOnly, "unique_id", None)
             .unwrap()
             .collect()
             .unwrap();
@@ -293,5 +305,37 @@ mod tests {
         assert!(col_names.contains(&"first_name_r"));
         assert!(col_names.contains(&"city_l"));
         assert!(col_names.contains(&"city_r"));
+    }
+
+    #[test]
+    fn test_link_only_with_source_column() {
+        let lf = df!(
+            "unique_id" => [1i64, 2, 3, 101, 102, 103],
+            "first_name" => ["Alice", "Bob", "Alice", "Carol", "Bob", "Alice"],
+            "city" => ["London", "London", "Paris", "London", "London", "Paris"],
+            "source_dataset" => ["a", "a", "a", "b", "b", "b"],
+        )
+        .unwrap()
+        .lazy();
+
+        let rules = vec![BlockingRule::on(&["city"])];
+        let pairs = generate_blocked_pairs(
+            &lf,
+            &rules,
+            &LinkType::LinkOnly,
+            "unique_id",
+            Some("source_dataset"),
+        )
+        .unwrap()
+        .collect()
+        .unwrap();
+
+        // Verify: all pairs should be cross-dataset (source_l != source_r)
+        let src_l = pairs.column("source_dataset_l").unwrap().str().unwrap();
+        let src_r = pairs.column("source_dataset_r").unwrap().str().unwrap();
+        for (l, r) in src_l.into_iter().zip(src_r.into_iter()) {
+            assert_ne!(l, r, "LinkOnly pairs must be cross-dataset");
+        }
+        assert!(pairs.height() > 0, "Should produce cross-dataset pairs");
     }
 }

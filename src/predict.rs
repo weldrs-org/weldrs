@@ -19,6 +19,7 @@
 //! - [`Auto`](PredictMode::Auto) — picks based on candidate-pair volume
 //!   and model size.
 
+use log::warn;
 use polars::prelude::*;
 use rayon::prelude::*;
 
@@ -288,6 +289,13 @@ pub fn predict_direct(
             })?;
 
         return Ok(df);
+    }
+
+    if n_rows > 50_000 {
+        warn!(
+            "predict_direct: scoring {n_rows} rows without thresholds on the sequential \
+             fast path. Consider using PredictMode::Lazy for large candidate sets."
+        );
     }
 
     // Fast path: no thresholds. Keep column-wise accumulation; benchmarks show

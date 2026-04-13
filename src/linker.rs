@@ -155,6 +155,7 @@ impl Linker {
             deterministic_rules,
             &self.settings.link_type,
             &self.settings.unique_id_column,
+            self.settings.source_dataset_column.as_deref(),
             recall,
         )?;
         self.settings.probability_two_random_records_match = lambda;
@@ -241,6 +242,7 @@ impl Linker {
             std::slice::from_ref(blocking_rule),
             &self.settings.link_type,
             &self.settings.unique_id_column,
+            self.settings.source_dataset_column.as_deref(),
         )?;
 
         // Compute comparison vectors.
@@ -354,6 +356,7 @@ impl Linker {
             &self.settings.blocking_rules,
             &self.settings.link_type,
             &self.settings.unique_id_column,
+            self.settings.source_dataset_column.as_deref(),
         )?;
 
         let effective_mode = if mode == predict::PredictMode::Auto {
