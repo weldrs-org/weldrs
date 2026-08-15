@@ -32,9 +32,9 @@ use weldrs::prelude::*;
 fn main() -> Result<()> {
     // 1. Prepare your data as a Polars DataFrame
     let df = df!(
-        "unique_id"  => [1i64, 2, 3, 4],
+        "unique_id" => [1i64, 2, 3, 4],
         "first_name" => ["John", "Jane", "Jon", "Jane"],
-        "last_name"    => ["Smith", "Doe", "Smith", "Doe"],
+        "last_name" => ["Smith", "Doe", "Smith", "Doe"],
     )?;
 
     // 2. Define comparisons and build settings
