@@ -125,12 +125,14 @@ fn extract_gamma_columns_i8(
 ///
 /// Returns an error if building the Bayes factor expression fails for
 /// any comparison.
+#[allow(clippy::too_many_arguments)]
 pub fn predict(
     comparison_vectors: LazyFrame,
     comparisons: &[Comparison],
     lambda: f64,
     gamma_prefix: &str,
     bf_prefix: &str,
+    tf_prefix: &str,
     threshold_match_probability: Option<f64>,
     threshold_match_weight: Option<f64>,
 ) -> Result<LazyFrame> {
@@ -149,6 +151,24 @@ pub fn predict(
         })
         .collect::<Result<Vec<_>>>()?;
     lf = lf.with_columns(bf_exprs);
+
+    // Term-frequency adjustments: emit `tf_{name}` columns and fold them into
+    // the per-comparison Bayes factors (BF_i ← BF_i × tf_adjustment_i).
+    let mut tf_cols: Vec<Expr> = Vec::new();
+    let mut bf_updates: Vec<Expr> = Vec::new();
+    for comp in comparisons {
+        if let Some(adj) = comp.tf_adjustment_expr(gamma_prefix) {
+            let tf_name = comp.tf_column_name(tf_prefix);
+            let bf_name = comp.bf_column_name(bf_prefix);
+            tf_cols.push(adj.alias(tf_name.as_str()));
+            bf_updates
+                .push((col(bf_name.as_str()) * col(tf_name.as_str())).alias(bf_name.as_str()));
+        }
+    }
+    if !tf_cols.is_empty() {
+        lf = lf.with_columns(tf_cols);
+        lf = lf.with_columns(bf_updates);
+    }
 
     // Compute combined match weight = log2(prior_odds) + sum(log2(BF_i)).
     let mut match_weight_expr = lit(log2_prior);
@@ -186,15 +206,38 @@ pub fn predict(
 /// # Errors
 ///
 /// Returns an error if gamma columns are missing or cannot be cast to `i8`.
+#[allow(clippy::too_many_arguments)]
 pub fn predict_direct(
     comparison_vectors: DataFrame,
     comparisons: &[Comparison],
     lambda: f64,
     gamma_prefix: &str,
     bf_prefix: &str,
+    tf_prefix: &str,
     threshold_match_probability: Option<f64>,
     threshold_match_weight: Option<f64>,
 ) -> Result<DataFrame> {
+    // Term-frequency adjustments are per-row, which the scalar gamma→BF lookup
+    // tables can't express. Delegate to the lazy path (single source of TF
+    // math) when any comparison uses them; this keeps lazy/direct in lockstep.
+    if comparisons.iter().any(|c| c.term_frequency_adjustments) {
+        return predict(
+            comparison_vectors.lazy(),
+            comparisons,
+            lambda,
+            gamma_prefix,
+            bf_prefix,
+            tf_prefix,
+            threshold_match_probability,
+            threshold_match_weight,
+        )?
+        .collect()
+        .map_err(|e| WeldrsError::Training {
+            stage: "predict",
+            message: format!("Failed to collect TF-adjusted predictions: {e}"),
+        });
+    }
+
     let bf_tables = crate::em::build_bf_tables(comparisons);
     let log2_bf_tables = crate::em::build_log2_bf_tables(comparisons);
     let prior_log2 = probability::prob_to_bayes_factor(lambda).log2();
@@ -397,7 +440,7 @@ mod tests {
         let comp = trained_comparison();
         let cv = comparison_vector_lf(&[1, 0]);
 
-        let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", None, None)
+        let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", "tf_", None, None)
             .unwrap()
             .collect()
             .unwrap();
@@ -418,7 +461,7 @@ mod tests {
         let cv = comparison_vector_lf(&[1, 0]); // exact match pair, non-match pair
 
         // Use lambda=0.1 so the prior doesn't dominate with a single comparison
-        let result = predict(cv, &[comp], 0.1, "gamma_", "bf_", None, None)
+        let result = predict(cv, &[comp], 0.1, "gamma_", "bf_", "tf_", None, None)
             .unwrap()
             .collect()
             .unwrap();
@@ -448,7 +491,7 @@ mod tests {
         let comp = trained_comparison();
         let cv = comparison_vector_lf(&[1, 0, 0]);
 
-        let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", Some(0.5), None)
+        let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", "tf_", Some(0.5), None)
             .unwrap()
             .collect()
             .unwrap();
@@ -468,7 +511,7 @@ mod tests {
         let comp = trained_comparison();
         let cv = comparison_vector_lf(&[1, 0, 0]);
 
-        let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", None, Some(0.0))
+        let result = predict(cv, &[comp], 0.0001, "gamma_", "bf_", "tf_", None, Some(0.0))
             .unwrap()
             .collect()
             .unwrap();
@@ -492,6 +535,7 @@ mod tests {
             0.1,
             "gamma_",
             "bf_",
+            "tf_",
             None,
             None,
         )
@@ -499,8 +543,17 @@ mod tests {
         .collect()
         .unwrap();
 
-        let direct_result =
-            predict_direct(cv_eager.clone(), &[comp], 0.1, "gamma_", "bf_", None, None).unwrap();
+        let direct_result = predict_direct(
+            cv_eager.clone(),
+            &[comp],
+            0.1,
+            "gamma_",
+            "bf_",
+            "tf_",
+            None,
+            None,
+        )
+        .unwrap();
 
         // Both paths should produce the same match probabilities (within f64 tolerance).
         let lazy_probs: Vec<f64> = lazy_result
@@ -534,8 +587,17 @@ mod tests {
         let comp = trained_comparison();
         let cv_eager = comparison_vector_lf(&[1, 0, 0]).collect().unwrap();
 
-        let result =
-            predict_direct(cv_eager, &[comp], 0.0001, "gamma_", "bf_", Some(0.5), None).unwrap();
+        let result = predict_direct(
+            cv_eager,
+            &[comp],
+            0.0001,
+            "gamma_",
+            "bf_",
+            "tf_",
+            Some(0.5),
+            None,
+        )
+        .unwrap();
 
         let probs = result.column("match_probability").unwrap().f64().unwrap();
         for p in probs.into_iter().flatten() {

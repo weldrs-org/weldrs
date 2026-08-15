@@ -95,85 +95,23 @@ pub fn estimate_u_using_random_sampling(
     // Compute comparison vectors.
     let cv = compute_comparison_vectors(pairs, comparisons, gamma_prefix)?;
 
-    // Group by gamma columns and count.
-    let gamma_cols: Vec<String> = comparisons
-        .iter()
-        .map(|c| c.gamma_column_name(gamma_prefix))
-        .collect();
-
-    let group_exprs: Vec<Expr> = gamma_cols.iter().map(|c| col(c.as_str())).collect();
-
-    let pattern_counts = cv
-        .group_by(group_exprs)
-        .agg([len().alias("__count")])
-        .collect()
-        .map_err(|e| WeldrsError::Training {
-            stage: "estimate_u",
-            message: format!("Failed to count patterns: {e}"),
-        })?;
-
-    let count_series = pattern_counts
-        .column("__count")
-        .map_err(|e| WeldrsError::Training {
-            stage: "estimate_u",
-            message: format!("Missing count: {e}"),
-        })?;
-    let counts: Vec<f64> = count_series
-        .u32()
-        .map_err(|e| WeldrsError::Training {
-            stage: "estimate_u",
-            message: format!("Count type error: {e}"),
-        })?
-        .into_no_null_iter()
-        .map(|v| v as f64)
-        .collect();
-
-    // For each comparison, compute u-probabilities from level frequencies.
-    for comp in comparisons.iter_mut() {
-        let gamma_col_name = comp.gamma_column_name(gamma_prefix);
-        let gamma_series =
-            pattern_counts
-                .column(&gamma_col_name)
-                .map_err(|e| WeldrsError::Training {
-                    stage: "estimate_u",
-                    message: format!("Missing gamma column: {e}"),
-                })?;
-        let gammas = gamma_series.i8().map_err(|e| WeldrsError::Training {
-            stage: "estimate_u",
-            message: format!("Gamma type error: {e}"),
-        })?;
-
-        // Total non-null count for this comparison.
-        let mut total_non_null = 0.0_f64;
-        for (row, &count) in counts.iter().enumerate() {
-            let gv = gammas.get(row).unwrap_or(-1) as i32;
-            let is_null = comp
-                .comparison_levels
-                .iter()
-                .any(|l| l.comparison_vector_value == gv && l.is_null_level);
-            if !is_null {
-                total_non_null += count;
-            }
-        }
-
-        for level in &mut comp.comparison_levels {
-            if level.is_null_level || level.fix_u_probability {
-                continue;
-            }
-
-            let cv = level.comparison_vector_value as i8;
-            let mut level_count = 0.0_f64;
-            for (row, &count) in counts.iter().enumerate() {
-                if gammas.get(row) == Some(cv) {
-                    level_count += count;
-                }
-            }
-
-            if total_non_null > 0.0 {
-                level.u_probability = Some(level_count / total_non_null);
-            }
-        }
-    }
+    // Reduce to agreement-pattern counts, then assign each level's frequency
+    // among non-matches to its u-probability. Random pairs are overwhelmingly
+    // non-matches, so these frequencies estimate u.
+    let (pattern_counts, counts) = crate::training_common::group_agreement_patterns(
+        cv,
+        comparisons,
+        gamma_prefix,
+        "estimate_u",
+    )?;
+    crate::training_common::assign_level_frequencies(
+        &pattern_counts,
+        &counts,
+        comparisons,
+        gamma_prefix,
+        crate::training_common::ProbKind::U,
+        "estimate_u",
+    )?;
 
     Ok(())
 }

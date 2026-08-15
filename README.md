@@ -8,13 +8,19 @@ A Rust-native implementation inspired by the [Splink](https://github.com/moj-ana
 
 ## Features
 
-- **Blocking rules** — reduce the comparison space with equi-join blocking on one or more columns
-- **Exact and fuzzy comparisons** — Jaro-Winkler, Levenshtein, and Jaro similarity predicates alongside exact matching
-- **EM training** — unsupervised Expectation-Maximization to learn m/u probabilities
-- **Fellegi-Sunter scoring** — Bayes-factor match weights and match probabilities for every candidate pair
-- **Connected-components clustering** — union-find grouping of linked records
+- **Blocking** — equi-join blocking on one or more columns, plus `custom` SQL predicates and `and`/`or`/`not` composition, and blocking analysis (`count_comparisons_from_blocking_rule`, `cumulative_comparisons_*`, `n_largest_blocks`)
+- **Rich comparison library** — exact, Levenshtein, Damerau-Levenshtein, Hamming, Jaro, Jaro-Winkler, Jaccard, absolute date difference, percentage difference, great-circle distance (km), array intersection, cosine similarity, `And`/`Or`/`Not` composition, and custom SQL predicates
+- **Term-frequency adjustments** — downweight common-value agreements, upweight rare ones
+- **EM training** — unsupervised Expectation-Maximization with full controls (`EmRunOptions`: fix m/u/lambda, populate lambda)
+- **Labelled training & evaluation** — estimate m from labels, plus ROC, precision-recall, accuracy, and prediction-error tables
+- **Fellegi-Sunter scoring** — Bayes-factor match weights and match probabilities; `Auto`/`Lazy`/`Direct` execution strategies
+- **Inference helpers** — `deterministic_link`, `compare_two_records`, `find_matches_to_new_records`
+- **Clustering** — connected-components and single-best-links (per-source cardinality), plus graph metrics (degree, bridges, density)
+- **Exploratory profiling** — column completeness, cardinality, value frequencies
 - **Model serialization** — save and load trained model parameters as JSON
-- **Waterfall explanations** — step-by-step breakdowns showing why each pair received its score
+- **Waterfall explanations & charts** — step-by-step score breakdowns; SVG waterfall, match-weight, and m/u charts (behind the `visualize` feature)
+
+> Scope note: weldrs targets the *programmatic* Splink capability surface. Splink's interactive HTML/JS dashboards (comparison viewer, cluster studio) and the interactive labelling tool are intentionally out of scope; diagnostics are returned as DataFrames or static SVG.
 
 ## Quick Start
 

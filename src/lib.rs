@@ -116,6 +116,7 @@
 pub(crate) mod test_helpers;
 
 pub mod blocking;
+pub mod blocking_analysis;
 pub mod clustering;
 pub mod comparison;
 pub mod comparison_level;
@@ -124,12 +125,17 @@ pub mod em;
 pub mod error;
 pub mod estimate_lambda;
 pub mod estimate_u;
+pub mod evaluation;
 pub mod explain;
+pub mod exploratory;
+pub mod graph_metrics;
 pub mod linker;
 pub mod predict;
 pub mod probability;
 pub mod settings;
 pub mod string_distance;
+pub mod term_frequencies;
+pub(crate) mod training_common;
 #[cfg(feature = "visualize")]
 pub mod visualize;
 
@@ -139,7 +145,9 @@ pub mod prelude {
     pub use crate::clustering::cluster_pairwise_predictions;
     pub use crate::comparison::Comparison;
     pub use crate::comparison_level::{ComparisonLevel, ComparisonPredicate};
+    pub use crate::em::EmRunOptions;
     pub use crate::error::{Result, WeldrsError};
+    pub use crate::evaluation::ThresholdMetrics;
     pub use crate::explain::{
         ComparisonSummary, LevelSummary, ModelSummary, WaterfallChart, WaterfallStep,
     };

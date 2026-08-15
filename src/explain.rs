@@ -47,6 +47,16 @@ pub struct WaterfallStep {
     pub cumulative_match_weight: f64,
     /// Running match probability after this step.
     pub cumulative_match_probability: f64,
+    /// Term-frequency adjustment multiplier applied to this step's Bayes factor
+    /// (`None` if term-frequency adjustments are disabled for the comparison).
+    /// The `bayes_factor` field already includes this multiplier.
+    #[serde(default)]
+    pub tf_adjustment: Option<f64>,
+    /// The Bayes factor before the term-frequency adjustment was applied
+    /// (`None` if term-frequency adjustments are disabled). Equals
+    /// `bayes_factor / tf_adjustment`.
+    #[serde(default)]
+    pub bayes_factor_pre_tf: Option<f64>,
 }
 
 /// Complete waterfall for one record pair.
@@ -187,6 +197,7 @@ fn cell_to_f64(df: &DataFrame, col_name: &str, row: usize) -> Result<f64> {
 /// Returns an error if `row_index` is out of bounds or if required
 /// columns (gamma, BF, unique ID, match_weight, match_probability)
 /// are missing.
+#[allow(clippy::too_many_arguments)]
 pub fn explain_pair(
     predictions: &DataFrame,
     row_index: usize,
@@ -194,6 +205,7 @@ pub fn explain_pair(
     lambda: f64,
     gamma_prefix: &str,
     bf_prefix: &str,
+    tf_prefix: &str,
     unique_id_column: &str,
 ) -> Result<WaterfallChart> {
     if row_index >= predictions.height() {
@@ -228,6 +240,8 @@ pub fn explain_pair(
         u_probability: None,
         cumulative_match_weight: prior_log2,
         cumulative_match_probability: prior_prob,
+        tf_adjustment: None,
+        bayes_factor_pre_tf: None,
     });
 
     let mut cumulative_weight = prior_log2;
@@ -238,14 +252,29 @@ pub fn explain_pair(
         let bf_col = comp.bf_column_name(bf_prefix);
 
         let gamma_val = cell_to_i32(predictions, &gamma_col, row_index)?;
-        let bf_val = cell_to_f64(predictions, &bf_col, row_index)?;
-        let log2_bf = bf_val.log2();
 
         // Find matching level
         let matched_level = comp
             .comparison_levels
             .iter()
             .find(|l| l.comparison_vector_value == gamma_val);
+
+        // Prefer the (possibly TF-adjusted) Bayes factor from the predictions
+        // frame; if intermediate columns were not retained, fall back to the
+        // matched level's base Bayes factor.
+        let bf_val = match cell_to_f64(predictions, &bf_col, row_index) {
+            Ok(v) => v,
+            Err(_) => matched_level
+                .map(|l| {
+                    if l.is_null_level {
+                        1.0
+                    } else {
+                        l.bayes_factor().unwrap_or(1.0)
+                    }
+                })
+                .unwrap_or(1.0),
+        };
+        let log2_bf = bf_val.log2();
 
         let (m_prob, u_prob, label) = match matched_level {
             Some(level) if level.is_null_level => (None, None, level.label.clone()),
@@ -268,6 +297,17 @@ pub fn explain_pair(
             (None, None)
         };
 
+        // Term-frequency split (the `bf_val` already includes the adjustment).
+        let (tf_adjustment, bayes_factor_pre_tf) = if comp.term_frequency_adjustments {
+            let tf_col = comp.tf_column_name(tf_prefix);
+            match cell_to_f64(predictions, &tf_col, row_index) {
+                Ok(tf) if tf != 0.0 => (Some(tf), Some(bf_val / tf)),
+                _ => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
         cumulative_weight += log2_bf;
         let cumulative_prob = probability::bayes_factor_to_prob(2.0_f64.powf(cumulative_weight));
 
@@ -283,6 +323,8 @@ pub fn explain_pair(
             u_probability: u_prob,
             cumulative_match_weight: cumulative_weight,
             cumulative_match_probability: cumulative_prob,
+            tf_adjustment,
+            bayes_factor_pre_tf,
         });
     }
 
@@ -304,6 +346,7 @@ pub fn explain_pair(
 ///
 /// Returns an error if any `row_index` is out of bounds or if required
 /// columns are missing.
+#[allow(clippy::too_many_arguments)]
 pub fn explain_pairs(
     predictions: &DataFrame,
     row_indices: &[usize],
@@ -311,6 +354,7 @@ pub fn explain_pairs(
     lambda: f64,
     gamma_prefix: &str,
     bf_prefix: &str,
+    tf_prefix: &str,
     unique_id_column: &str,
 ) -> Result<Vec<WaterfallChart>> {
     row_indices
@@ -323,6 +367,7 @@ pub fn explain_pairs(
                 lambda,
                 gamma_prefix,
                 bf_prefix,
+                tf_prefix,
                 unique_id_column,
             )
         })
@@ -462,6 +507,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             None,
             None,
         )
@@ -553,6 +599,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -571,6 +618,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -598,6 +646,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -624,6 +673,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -657,6 +707,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -684,6 +735,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -734,6 +786,7 @@ mod tests {
             0.01,
             "gamma_",
             "bf_",
+            "tf_",
             None,
             None,
         )
@@ -741,7 +794,17 @@ mod tests {
         .collect()
         .unwrap();
 
-        let chart = explain_pair(&scored, 0, &[comp], 0.01, "gamma_", "bf_", "unique_id").unwrap();
+        let chart = explain_pair(
+            &scored,
+            0,
+            &[comp],
+            0.01,
+            "gamma_",
+            "bf_",
+            "tf_",
+            "unique_id",
+        )
+        .unwrap();
 
         let col_step = &chart.steps[1];
         assert!((col_step.bayes_factor - 1.0).abs() < 1e-10);
@@ -759,6 +822,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -784,6 +848,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();
@@ -801,6 +866,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         );
         assert!(result.is_err());
@@ -817,6 +883,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap();

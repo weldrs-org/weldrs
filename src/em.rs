@@ -41,13 +41,73 @@ pub struct EmIterationResult {
     pub comparisons: Vec<Comparison>,
 }
 
+/// Outcome of an EM training run.
+///
+/// Always carries the `final_result` (the converged / last iteration). The
+/// per-iteration `history` is `Some` only when
+/// [`TrainingSettings::store_history`](crate::settings::TrainingSettings) is
+/// enabled — useful for plotting parameter trajectories
+/// (see [`parameter_estimate_comparisons_chart_svg`](crate::visualize::parameter_estimate_comparisons_chart_svg)).
+#[derive(Debug, Clone)]
+pub struct EmOutcome {
+    /// The final iteration's parameters (converged or last before `max_iterations`).
+    pub final_result: EmIterationResult,
+    /// Full per-iteration history, if `store_history` was enabled.
+    pub history: Option<Vec<EmIterationResult>>,
+}
+
+/// Options controlling a single EM training run.
+///
+/// Defaults match Splink's
+/// `estimate_parameters_using_expectation_maximisation`: `fix_u_probabilities`
+/// is `true` (u-probabilities come from
+/// [`estimate_u`](crate::estimate_u) and are not re-estimated during EM), while
+/// every other flag is `false`.
+///
+/// Note: the **free function** [`expectation_maximization`] takes these options
+/// explicitly (no hidden default), while
+/// [`Linker::estimate_parameters_using_em`](crate::linker::Linker::estimate_parameters_using_em)
+/// applies [`EmRunOptions::default`] to match Splink behaviour. These two layers
+/// are intentionally distinct — do not "unify" them, or the Splink-conformant
+/// defaults will silently change.
+#[derive(Debug, Clone)]
+pub struct EmRunOptions {
+    /// If `true`, m-probabilities are held fixed for all comparisons.
+    pub fix_m_probabilities: bool,
+    /// If `true`, u-probabilities are held fixed for all comparisons
+    /// (the Splink default — u comes from random-sampling estimation).
+    pub fix_u_probabilities: bool,
+    /// If `true`, lambda (probability two random records match) is not updated
+    /// by the M-step.
+    pub fix_probability_two_random_records_match: bool,
+    /// If `true`, the EM-trained lambda is written back into the model settings
+    /// by [`Linker::estimate_parameters_using_em`](crate::linker::Linker::estimate_parameters_using_em).
+    /// Has no effect if `fix_probability_two_random_records_match` is `true`.
+    pub populate_probability_two_random_records_match_from_trained_values: bool,
+}
+
+impl Default for EmRunOptions {
+    fn default() -> Self {
+        Self {
+            fix_m_probabilities: false,
+            fix_u_probabilities: true,
+            fix_probability_two_random_records_match: false,
+            populate_probability_two_random_records_match_from_trained_values: false,
+        }
+    }
+}
+
 /// Run the EM algorithm on comparison vectors.
 ///
 /// `comparison_vectors` must contain gamma columns for every comparison in
-/// `comparisons`. Comparisons listed in `columns_to_fix` will not have their
-/// m/u parameters updated (they overlap with the training blocking rule).
+/// `comparisons`. Comparisons whose input columns overlap `columns_to_fix`
+/// (the training blocking rule) have their **m-probabilities** held fixed —
+/// the column always agrees under the block, so its m is indeterminate from
+/// this pass. u-probabilities are governed solely by `opts.fix_u_probabilities`
+/// (independent of block overlap), since u is estimated separately.
 ///
-/// Returns the iteration history (the last entry contains the final parameters).
+/// Returns an [`EmOutcome`] with the final parameters and (when
+/// `store_history` is enabled) the full per-iteration history.
 ///
 /// # Errors
 ///
@@ -60,15 +120,34 @@ pub fn expectation_maximization(
     training: &TrainingSettings,
     gamma_prefix: &str,
     columns_to_fix: &[String],
-) -> Result<Vec<EmIterationResult>> {
-    // Mark comparisons whose columns overlap with the training blocking rule.
-    for comp in &mut comparisons {
-        if columns_to_fix
-            .iter()
-            .any(|c| comp.input_columns.contains(c))
-        {
-            for level in &mut comp.comparison_levels {
+    opts: &EmRunOptions,
+) -> Result<EmOutcome> {
+    // Determine which parameters are held fixed for each comparison, and which
+    // comparisons overlap the training block.
+    //
+    // - Block overlap fixes only m (the column always agrees under the block).
+    // - `opts.fix_m_probabilities` fixes m globally.
+    // - `opts.fix_u_probabilities` fixes u globally (independent of overlap).
+    //
+    // A block-overlapping comparison is also *excluded* from the E-step: under
+    // the block it always agrees, so it carries no information about whether a
+    // pair matches. Leaving it in (with its default/previous Bayes factor) would
+    // saturate the posterior and bias the other comparisons' m estimates. This
+    // mirrors Splink, which drops the blocked column from the EM session.
+    let excluded: Vec<bool> = comparisons
+        .iter()
+        .map(|comp| {
+            columns_to_fix
+                .iter()
+                .any(|c| comp.input_columns.contains(c))
+        })
+        .collect();
+    for (comp, &overlaps) in comparisons.iter_mut().zip(excluded.iter()) {
+        for level in &mut comp.comparison_levels {
+            if overlaps || opts.fix_m_probabilities {
                 level.fix_m_probability = true;
+            }
+            if opts.fix_u_probabilities {
                 level.fix_u_probability = true;
             }
         }
@@ -132,11 +211,17 @@ pub fn expectation_maximization(
 
     let mut current_lambda = lambda;
     let mut results = Vec::new();
-    let mut converged = false;
 
     for iteration in 0..training.max_iterations {
         // Pre-compute log Bayes factor lookup tables for numerically stable E-step.
-        let log_bf_tables = build_log_bf_tables(&comparisons);
+        let mut log_bf_tables = build_log_bf_tables(&comparisons);
+        // Neutralize block-excluded comparisons (BF = 1 → log-BF = 0) so they
+        // don't bias the posterior in the E-step.
+        for (table, &ex) in log_bf_tables.iter_mut().zip(excluded.iter()) {
+            if ex {
+                table.iter_mut().for_each(|v| *v = 0.0);
+            }
+        }
 
         // Pre-compute null-level lookup tables for the M-step.
         let null_tables = build_null_tables(&comparisons);
@@ -153,7 +238,14 @@ pub fn expectation_maximization(
             &null_tables,
         )?;
 
-        current_lambda = new_lambda;
+        // Hold lambda fixed if requested; otherwise adopt the M-step estimate.
+        if !opts.fix_probability_two_random_records_match {
+            current_lambda = new_lambda;
+        }
+
+        log::debug!(
+            "EM iteration {iteration}: lambda={current_lambda:.6}, max_change={max_change:.6}"
+        );
 
         if training.store_history || max_change < training.em_convergence {
             results.push(EmIterationResult {
@@ -165,23 +257,33 @@ pub fn expectation_maximization(
         }
 
         if max_change < training.em_convergence {
-            converged = true;
             break;
         }
     }
 
-    // If store_history was false and we didn't converge, push the final state
-    // so the caller always has at least one result.
-    if !converged && !training.store_history {
+    // Ensure we always have a final state — even if `max_iterations == 0`, or
+    // `store_history` is off and we never pushed during the loop.
+    if results.is_empty() {
         results.push(EmIterationResult {
-            iteration: results.len(),
+            iteration: 0,
             lambda: current_lambda,
             max_change: f64::NAN,
             comparisons,
         });
     }
-
-    Ok(results)
+    let final_result = results
+        .last()
+        .cloned()
+        .expect("results is non-empty after the guard above");
+    let history = if training.store_history {
+        Some(results)
+    } else {
+        None
+    };
+    Ok(EmOutcome {
+        final_result,
+        history,
+    })
 }
 
 /// Build a lookup table for each comparison: `bf_tables[comp_idx][gamma_val + 1] = bayes_factor`.
@@ -529,6 +631,15 @@ mod tests {
         .lazy()
     }
 
+    /// Options for unit tests that intentionally exercise both m and u
+    /// movement (the free-function default would fix u, per Splink).
+    fn u_moves() -> EmRunOptions {
+        EmRunOptions {
+            fix_u_probabilities: false,
+            ..Default::default()
+        }
+    }
+
     fn make_comparisons() -> Vec<Comparison> {
         vec![
             ComparisonBuilder::new("first_name")
@@ -557,9 +668,10 @@ mod tests {
         };
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
-        let last = results.last().unwrap();
+        let last = &results.final_result;
         assert!(
             last.max_change < training.em_convergence,
             "EM should converge, max_change={}, threshold={}",
@@ -588,9 +700,10 @@ mod tests {
             .unwrap();
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
-        let final_m = results.last().unwrap().comparisons[0]
+        let final_m = results.final_result.comparisons[0]
             .comparison_levels
             .iter()
             .find(|l| l.comparison_vector_value == 1)
@@ -617,9 +730,10 @@ mod tests {
         };
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
-        let final_comp = &results.last().unwrap().comparisons[0];
+        let final_comp = &results.final_result.comparisons[0];
         let exact_level = final_comp
             .comparison_levels
             .iter()
@@ -654,6 +768,8 @@ mod tests {
             .map(|l| (l.m_probability, l.u_probability))
             .collect();
 
+        // Default opts (Splink): fix_u_probabilities=true. first_name overlaps
+        // the block (m fixed) and u is globally fixed, so both stay put.
         let results = expectation_maximization(
             &cv,
             comparisons,
@@ -661,10 +777,11 @@ mod tests {
             &training,
             "gamma_",
             &["first_name".to_string()],
+            &EmRunOptions::default(),
         )
         .unwrap();
 
-        let final_comps = &results.last().unwrap().comparisons;
+        let final_comps = &results.final_result.comparisons;
 
         // first_name comparison should be unchanged (fixed)
         for (i, level) in final_comps[0].comparison_levels.iter().enumerate() {
@@ -690,6 +807,53 @@ mod tests {
     }
 
     #[test]
+    fn test_em_overlap_fixes_only_m_when_u_unfixed() {
+        // With fix_u_probabilities=false, a block-overlapping comparison should
+        // have ONLY its m held fixed — its u is free to move (the §2.2 fix).
+        let cv = make_pattern_counts();
+        let comparisons = make_comparisons();
+        let training = TrainingSettings {
+            em_convergence: 0.0001,
+            max_iterations: 25,
+            ..Default::default()
+        };
+
+        let initial_fn: Vec<(Option<f64>, Option<f64>)> = comparisons[0]
+            .comparison_levels
+            .iter()
+            .map(|l| (l.m_probability, l.u_probability))
+            .collect();
+
+        let results = expectation_maximization(
+            &cv,
+            comparisons,
+            0.05,
+            &training,
+            "gamma_",
+            &["first_name".to_string()],
+            &u_moves(),
+        )
+        .unwrap();
+
+        let final_fn = &results.final_result.comparisons[0];
+
+        // m unchanged (fixed via overlap)…
+        for (i, level) in final_fn.comparison_levels.iter().enumerate() {
+            assert_eq!(
+                level.m_probability, initial_fn[i].0,
+                "Overlapping comparison m must stay fixed"
+            );
+        }
+        // …but u moved for at least one non-null level.
+        let u_changed = final_fn
+            .comparison_levels
+            .iter()
+            .enumerate()
+            .any(|(i, l)| !l.is_null_level && l.u_probability != initial_fn[i].1);
+        assert!(u_changed, "Overlapping comparison u should be free to move");
+    }
+
+    #[test]
     fn test_em_deterministic() {
         let training = TrainingSettings {
             em_convergence: 0.0001,
@@ -700,20 +864,21 @@ mod tests {
         let run = || {
             let cv = make_pattern_counts();
             let comparisons = make_comparisons();
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap()
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap()
         };
 
         let results_a = run();
         let results_b = run();
 
         assert_eq!(
-            results_a.len(),
-            results_b.len(),
+            results_a.history.as_ref().map(|h| h.len()),
+            results_b.history.as_ref().map(|h| h.len()),
             "Should converge in same number of iterations"
         );
 
-        let last_a = results_a.last().unwrap();
-        let last_b = results_b.last().unwrap();
+        let last_a = &results_a.final_result;
+        let last_b = &results_b.final_result;
 
         // Use epsilon tolerance for floating-point associativity differences
         // from parallel reduction (~1e-15 per operation).
@@ -766,11 +931,18 @@ mod tests {
         };
         let initial_lambda = 0.05;
 
-        let results =
-            expectation_maximization(&cv, comparisons, initial_lambda, &training, "gamma_", &[])
-                .unwrap();
+        let results = expectation_maximization(
+            &cv,
+            comparisons,
+            initial_lambda,
+            &training,
+            "gamma_",
+            &[],
+            &u_moves(),
+        )
+        .unwrap();
 
-        let final_lambda = results.last().unwrap().lambda;
+        let final_lambda = results.final_result.lambda;
         assert!(
             (final_lambda - initial_lambda).abs() > 1e-6,
             "Lambda should change from initial value, initial={initial_lambda}, final={final_lambda}"
@@ -788,18 +960,16 @@ mod tests {
         };
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[]).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
-        // With store_history=false, should have at most 2 entries
-        // (final convergence entry + possible last-state entry).
+        // With store_history=false, no per-iteration history is retained.
         assert!(
-            results.len() <= 2,
-            "Without history storage, should have few results, got {}",
-            results.len()
+            results.history.is_none(),
+            "history should be None when store_history is disabled"
         );
 
-        // The last result should still have valid comparisons.
-        let last = results.last().unwrap();
-        assert!(!last.comparisons.is_empty());
+        // The final result should still have valid comparisons.
+        assert!(!results.final_result.comparisons.is_empty());
     }
 }
