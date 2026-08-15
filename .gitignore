@@ -2,3 +2,5 @@
 fastlink-r
 splink-python
 examples/charts/
+.worktrees/
+docs/superpowers/

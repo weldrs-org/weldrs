@@ -115,25 +115,34 @@ fn test_link_only_known_matches_score_high() {
         .f64()
         .unwrap();
 
-    // Known cross-dataset matches: (1,101) John/Jon Smith, (4,104) Alice/Alice Brown
-    let mut found_cross_match = false;
-    for ((l, r), p) in uid_l
-        .into_iter()
-        .zip(uid_r.into_iter())
-        .zip(probs.into_iter())
-    {
+    // Known cross-dataset matches (same surname + same/similar first name + same
+    // city): (1,101), (2,102), (4,104). Pair (3,103) shares surname Williams but
+    // first names Bob/Robert differ, so it is a weaker match.
+    //
+    // With Splink-conformant defaults (u comes from random sampling, not EM —
+    // see EmRunOptions), absolute probabilities on this 10-row toy dataset are
+    // small, but the model must still *separate* strong matches from the rest.
+    // We assert on ranking/separation rather than a brittle absolute threshold.
+    let mut best_match: f64 = 0.0;
+    let mut best_non_match: f64 = 0.0;
+    for ((l, r), p) in uid_l.into_iter().zip(uid_r).zip(probs) {
         if let (Some(l), Some(r), Some(prob)) = (l, r, p) {
-            let is_cross_match = matches!(
-                (l.min(r), l.max(r)),
-                (1, 101) | (4, 104) | (3, 103) | (2, 102)
-            );
-            if is_cross_match && prob > 0.2 {
-                found_cross_match = true;
+            let is_strong_match = matches!((l.min(r), l.max(r)), (1, 101) | (2, 102) | (4, 104));
+            if is_strong_match {
+                best_match = best_match.max(prob);
+            } else {
+                best_non_match = best_non_match.max(prob);
             }
         }
     }
+
     assert!(
-        found_cross_match,
-        "At least one cross-dataset match should score reasonably"
+        best_match > 0.0,
+        "Strong cross-dataset matches should be present and scored"
+    );
+    assert!(
+        best_match > best_non_match * 5.0,
+        "Strong cross-dataset matches ({best_match:.4}) should score well above \
+         weaker pairs ({best_non_match:.4})"
     );
 }

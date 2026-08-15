@@ -297,6 +297,77 @@ pub fn jaro_winkler_similarity(a: &str, b: &str) -> f64 {
     strsim::jaro_winkler(a, b)
 }
 
+/// Whether the Damerau-Levenshtein distance between `a` and `b` is at most
+/// `max_dist`. Damerau-Levenshtein extends Levenshtein with transposition of
+/// two adjacent characters as a single edit (catching common typos like
+/// "teh" ↔ "the").
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::string_distance::damerau_levenshtein_within;
+///
+/// assert!(damerau_levenshtein_within("teh", "the", 1));   // one transposition
+/// assert!(!damerau_levenshtein_within("teh", "the", 0));
+/// ```
+pub fn damerau_levenshtein_within(a: &str, b: &str, max_dist: u32) -> bool {
+    strsim::damerau_levenshtein(a, b) as u32 <= max_dist
+}
+
+/// Whether the Hamming distance between `a` and `b` is at most `max_dist`.
+///
+/// Hamming distance counts positions at which the two strings differ and is
+/// only defined for equal-length strings; unequal lengths are treated as a
+/// non-match (returns `false`).
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::string_distance::hamming_within;
+///
+/// assert!(hamming_within("karolin", "kathrin", 3));
+/// assert!(!hamming_within("abc", "abcd", 5)); // different lengths → non-match
+/// ```
+pub fn hamming_within(a: &str, b: &str, max_dist: u32) -> bool {
+    match strsim::hamming(a, b) {
+        Ok(d) => d as u32 <= max_dist,
+        Err(_) => false,
+    }
+}
+
+/// Jaccard similarity of the **character sets** of `a` and `b`:
+/// `|chars(a) ∩ chars(b)| / |chars(a) ∪ chars(b)|`, in `0.0..=1.0`.
+///
+/// This treats each string as its set of distinct characters (matching the
+/// `jaccard` SQL function used by Splink's DuckDB backend). Two empty strings
+/// are defined as fully similar (`1.0`).
+///
+/// # Examples
+///
+/// ```
+/// use weldrs::string_distance::jaccard_similarity;
+///
+/// assert_eq!(jaccard_similarity("abc", "abc"), 1.0);
+/// assert_eq!(jaccard_similarity("", ""), 1.0);
+/// // {a,b,c} ∩ {b,c,d} = {b,c}; ∪ = {a,b,c,d} → 2/4
+/// assert!((jaccard_similarity("abc", "bcd") - 0.5).abs() < 1e-12);
+/// ```
+pub fn jaccard_similarity(a: &str, b: &str) -> f64 {
+    use rustc_hash::FxHashSet;
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    let sa: FxHashSet<char> = a.chars().collect();
+    let sb: FxHashSet<char> = b.chars().collect();
+    let inter = sa.intersection(&sb).count();
+    let union = sa.len() + sb.len() - inter;
+    if union == 0 {
+        1.0
+    } else {
+        inter as f64 / union as f64
+    }
+}
+
 /// Core Jaro computation for ASCII byte slices using stack-allocated arrays.
 fn jaro_ascii_fast(a: &[u8], b: &[u8]) -> f64 {
     let a_len = a.len();

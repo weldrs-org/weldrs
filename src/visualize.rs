@@ -27,6 +27,7 @@ use std::path::Path;
 
 use plotters::prelude::*;
 
+use crate::em::EmIterationResult;
 use crate::error::{Result, WeldrsError};
 use crate::explain::{ModelSummary, WaterfallChart};
 
@@ -366,6 +367,213 @@ pub fn match_weights_chart_svg(summary: &ModelSummary, options: &ChartOptions) -
     Ok(buf)
 }
 
+/// Render an m/u parameters chart as an SVG string.
+///
+/// Plots the m-probability and u-probability of each non-null comparison level
+/// as two point/line series on a 0–1 axis, so agreement (m) and chance-agreement
+/// (u) can be compared at a glance.
+pub fn m_u_parameters_chart_svg(summary: &ModelSummary, options: &ChartOptions) -> Result<String> {
+    let mut labels: Vec<String> = Vec::new();
+    let mut m_vals: Vec<f64> = Vec::new();
+    let mut u_vals: Vec<f64> = Vec::new();
+
+    for comp in &summary.comparisons {
+        for level in &comp.levels {
+            if level.is_null_level {
+                continue;
+            }
+            labels.push(format!("{}:{}", comp.output_column_name, level.label));
+            m_vals.push(level.m_probability.unwrap_or(0.0));
+            u_vals.push(level.u_probability.unwrap_or(0.0));
+        }
+    }
+
+    let n = labels.len();
+    if n == 0 {
+        return Err(vis_err("No levels to display"));
+    }
+
+    let mut buf = String::new();
+    {
+        let root =
+            SVGBackend::with_string(&mut buf, (options.width, options.height)).into_drawing_area();
+        root.fill(&WHITE).map_err(|e| vis_err(e.to_string()))?;
+
+        let mut chart = ChartBuilder::on(&root)
+            .caption(
+                "m / u parameters by comparison level",
+                ("sans-serif", options.title_font_size),
+            )
+            .margin(15)
+            .x_label_area_size(80)
+            .y_label_area_size(60)
+            .build_cartesian_2d((0..n - 1).into_segmented(), 0.0_f64..1.0_f64)
+            .map_err(|e| vis_err(e.to_string()))?;
+
+        chart
+            .configure_mesh()
+            .x_labels(n)
+            .x_label_formatter(&|seg| {
+                if let SegmentValue::CenterOf(idx) = seg {
+                    labels.get(*idx).cloned().unwrap_or_default()
+                } else {
+                    String::new()
+                }
+            })
+            .x_label_style(("sans-serif", options.label_font_size).into_text_style(&root))
+            .y_desc("Probability")
+            .y_label_style(("sans-serif", options.label_font_size).into_text_style(&root))
+            .draw()
+            .map_err(|e| vis_err(e.to_string()))?;
+
+        // m as positive-colored bars; u as a neutral-colored line+points overlay.
+        for (i, &m) in m_vals.iter().enumerate().take(n) {
+            chart
+                .draw_series(std::iter::once(Rectangle::new(
+                    [
+                        (SegmentValue::Exact(i), 0.0),
+                        (SegmentValue::Exact(i + 1), m),
+                    ],
+                    rgb(options.positive_color).mix(0.6).filled(),
+                )))
+                .map_err(|e| vis_err(e.to_string()))?;
+        }
+        chart
+            .draw_series(
+                u_vals
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &u)| Circle::new((SegmentValue::CenterOf(i), u), 4, rgb(options.negative_color).filled())),
+            )
+            .map_err(|e| vis_err(e.to_string()))?;
+
+        root.present().map_err(|e| vis_err(e.to_string()))?;
+    }
+
+    Ok(buf)
+}
+
+/// Render an m/u parameters chart and write the SVG to a file.
+pub fn m_u_parameters_chart_to_file(
+    summary: &ModelSummary,
+    path: &Path,
+    options: &ChartOptions,
+) -> Result<()> {
+    let svg = m_u_parameters_chart_svg(summary, options)?;
+    std::fs::write(path, svg).map_err(|e| vis_err(format!("Failed to write SVG: {e}")))?;
+    Ok(())
+}
+
+/// Render the m-probability trajectory across EM iterations as an SVG string.
+///
+/// Plots one line per non-null level of `comparison_output_name`, showing how
+/// its m-probability evolved over the EM iterations in `history` (the
+/// [`EmOutcome::history`](crate::em::EmOutcome) returned when
+/// `store_history` is enabled). Useful for diagnosing convergence.
+///
+/// # Errors
+///
+/// Returns an error if `history` is empty or the comparison is not found.
+pub fn parameter_estimate_comparisons_chart_svg(
+    history: &[EmIterationResult],
+    comparison_output_name: &str,
+    options: &ChartOptions,
+) -> Result<String> {
+    if history.is_empty() {
+        return Err(vis_err("No EM history to plot"));
+    }
+    let comp = history[0]
+        .comparisons
+        .iter()
+        .find(|c| c.output_column_name == comparison_output_name)
+        .ok_or_else(|| vis_err(format!("Comparison '{comparison_output_name}' not found")))?;
+    let levels: Vec<(i32, String)> = comp
+        .comparison_levels
+        .iter()
+        .filter(|l| !l.is_null_level)
+        .map(|l| (l.comparison_vector_value, l.label.clone()))
+        .collect();
+
+    let n = history.len();
+    let x_max = (n.saturating_sub(1)).max(1) as f64;
+
+    let mut buf = String::new();
+    {
+        let root =
+            SVGBackend::with_string(&mut buf, (options.width, options.height)).into_drawing_area();
+        root.fill(&WHITE).map_err(|e| vis_err(e.to_string()))?;
+
+        let mut chart = ChartBuilder::on(&root)
+            .caption(
+                format!("m-probability trajectory: {comparison_output_name}"),
+                ("sans-serif", options.title_font_size),
+            )
+            .margin(15)
+            .x_label_area_size(40)
+            .y_label_area_size(55)
+            .build_cartesian_2d(0.0_f64..x_max, 0.0_f64..1.0_f64)
+            .map_err(|e| vis_err(e.to_string()))?;
+
+        chart
+            .configure_mesh()
+            .x_desc("EM iteration")
+            .y_desc("m-probability")
+            .x_label_style(("sans-serif", options.label_font_size).into_text_style(&root))
+            .y_label_style(("sans-serif", options.label_font_size).into_text_style(&root))
+            .draw()
+            .map_err(|e| vis_err(e.to_string()))?;
+
+        for (li, (cv, label)) in levels.iter().enumerate() {
+            let points: Vec<(f64, f64)> = history
+                .iter()
+                .enumerate()
+                .filter_map(|(it, res)| {
+                    res.comparisons
+                        .iter()
+                        .find(|c| c.output_column_name == comparison_output_name)
+                        .and_then(|c| {
+                            c.comparison_levels
+                                .iter()
+                                .find(|l| l.comparison_vector_value == *cv)
+                        })
+                        .and_then(|l| l.m_probability)
+                        .map(|m| (it as f64, m))
+                })
+                .collect();
+
+            let color = Palette99::pick(li).to_rgba();
+            chart
+                .draw_series(LineSeries::new(points, color.stroke_width(2)))
+                .map_err(|e| vis_err(e.to_string()))?
+                .label(label.clone())
+                .legend(move |(x, y)| PathElement::new(vec![(x, y), (x + 18, y)], color));
+        }
+
+        chart
+            .configure_series_labels()
+            .background_style(WHITE.mix(0.8))
+            .border_style(BLACK)
+            .label_font(("sans-serif", options.label_font_size))
+            .draw()
+            .map_err(|e| vis_err(e.to_string()))?;
+
+        root.present().map_err(|e| vis_err(e.to_string()))?;
+    }
+
+    Ok(buf)
+}
+
+/// Render the m-probability trajectory chart and write the SVG to a file.
+pub fn parameter_estimate_comparisons_chart_to_file(
+    history: &[EmIterationResult],
+    comparison_output_name: &str,
+    path: &Path,
+    options: &ChartOptions,
+) -> Result<()> {
+    let svg = parameter_estimate_comparisons_chart_svg(history, comparison_output_name, options)?;
+    write_svg_to_file(&svg, path)
+}
+
 /// Render a match weights chart and write the SVG to a file.
 pub fn match_weights_chart_to_file(
     summary: &ModelSummary,
@@ -378,26 +586,23 @@ pub fn match_weights_chart_to_file(
 
 // ── 3. Weight distribution histogram ────────────────────────────────
 
-/// Render a histogram of match weight values to an SVG string.
-///
-/// Performs manual binning of the supplied match weights and draws
-/// rectangular bars for each bin.
-pub fn weight_distribution_chart_svg(
-    match_weights: &[f64],
+/// Render a histogram of `values` to an SVG string with the given title and
+/// x-axis label. Shared by [`weight_distribution_chart_svg`] and
+/// [`tf_adjustment_chart_svg`].
+fn histogram_svg(
+    values: &[f64],
     num_bins: Option<usize>,
+    title: &str,
+    x_desc: &str,
     options: &ChartOptions,
 ) -> Result<String> {
-    if match_weights.is_empty() {
-        return Err(vis_err("No match weights to plot"));
+    if values.is_empty() {
+        return Err(vis_err("No values to plot"));
     }
 
-    let finite: Vec<f64> = match_weights
-        .iter()
-        .copied()
-        .filter(|w| w.is_finite())
-        .collect();
+    let finite: Vec<f64> = values.iter().copied().filter(|w| w.is_finite()).collect();
     if finite.is_empty() {
-        return Err(vis_err("All match weights are non-finite"));
+        return Err(vis_err("All values are non-finite"));
     }
 
     let w_min = finite.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -435,10 +640,7 @@ pub fn weight_distribution_chart_svg(
         let y_pad = max_count as f64 * 0.1;
 
         let mut chart = ChartBuilder::on(&root)
-            .caption(
-                "Match weight distribution",
-                ("sans-serif", options.title_font_size),
-            )
+            .caption(title, ("sans-serif", options.title_font_size))
             .margin(15)
             .x_label_area_size(40)
             .y_label_area_size(50)
@@ -450,7 +652,7 @@ pub fn weight_distribution_chart_svg(
 
         chart
             .configure_mesh()
-            .x_desc("Match weight")
+            .x_desc(x_desc)
             .y_desc("Count")
             .x_label_style(("sans-serif", options.label_font_size).into_text_style(&root))
             .y_label_style(("sans-serif", options.label_font_size).into_text_style(&root))
@@ -473,6 +675,55 @@ pub fn weight_distribution_chart_svg(
     }
 
     Ok(buf)
+}
+
+/// Render a histogram of match weight values to an SVG string.
+///
+/// Performs manual binning of the supplied match weights and draws
+/// rectangular bars for each bin.
+pub fn weight_distribution_chart_svg(
+    match_weights: &[f64],
+    num_bins: Option<usize>,
+    options: &ChartOptions,
+) -> Result<String> {
+    histogram_svg(
+        match_weights,
+        num_bins,
+        "Match weight distribution",
+        "Match weight",
+        options,
+    )
+}
+
+/// Render a histogram of term-frequency adjustment multipliers to an SVG string.
+///
+/// `tf_multipliers` are the per-row term-frequency adjustments for a comparison
+/// (the `tf_*` columns produced by prediction when intermediate calculation
+/// columns are retained). Values above 1.0 upweight a match (rare value); values
+/// below 1.0 downweight it (common value).
+pub fn tf_adjustment_chart_svg(
+    tf_multipliers: &[f64],
+    num_bins: Option<usize>,
+    options: &ChartOptions,
+) -> Result<String> {
+    histogram_svg(
+        tf_multipliers,
+        num_bins,
+        "Term-frequency adjustment distribution",
+        "TF adjustment multiplier",
+        options,
+    )
+}
+
+/// Render a TF-adjustment histogram and write the SVG to a file.
+pub fn tf_adjustment_chart_to_file(
+    tf_multipliers: &[f64],
+    num_bins: Option<usize>,
+    path: &Path,
+    options: &ChartOptions,
+) -> Result<()> {
+    let svg = tf_adjustment_chart_svg(tf_multipliers, num_bins, options)?;
+    write_svg_to_file(&svg, path)
 }
 
 /// Render a weight distribution histogram and write the SVG to a file.
@@ -565,6 +816,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             None,
             None,
         )
@@ -579,6 +831,7 @@ mod tests {
             settings.probability_two_random_records_match,
             &settings.gamma_prefix,
             &settings.bf_prefix,
+            &settings.tf_adjustment_column_prefix,
             &settings.unique_id_column,
         )
         .unwrap()
@@ -626,6 +879,66 @@ mod tests {
         assert!(svg.contains("<svg"));
         assert!(svg.contains("</svg>"));
         assert!(svg.contains("Match weights"));
+    }
+
+    #[test]
+    fn test_m_u_parameters_chart_produces_svg() {
+        let settings = make_trained_settings();
+        let summary = explain::model_summary(&settings);
+        let svg = m_u_parameters_chart_svg(&summary, &ChartOptions::default()).unwrap();
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("</svg>"));
+        assert!(svg.contains("m / u parameters"));
+    }
+
+    #[test]
+    fn test_tf_adjustment_chart_produces_svg() {
+        let vals = vec![0.5, 0.8, 1.2, 2.0, 0.3, 1.5, 0.9, 1.1];
+        let svg = tf_adjustment_chart_svg(&vals, None, &ChartOptions::default()).unwrap();
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("</svg>"));
+        assert!(svg.contains("Term-frequency"));
+    }
+
+    #[test]
+    fn test_parameter_trajectory_chart_produces_svg() {
+        use crate::comparison::ComparisonBuilder;
+        use crate::em::EmIterationResult;
+
+        let mk = |m_exact: f64| {
+            let mut c = ComparisonBuilder::new("first_name")
+                .null_level()
+                .exact_match_level()
+                .else_level()
+                .build()
+                .unwrap();
+            for lv in &mut c.comparison_levels {
+                if lv.comparison_vector_value == 1 {
+                    lv.m_probability = Some(m_exact);
+                }
+            }
+            EmIterationResult {
+                iteration: 0,
+                lambda: 0.01,
+                max_change: 0.1,
+                comparisons: vec![c],
+            }
+        };
+        let history = vec![mk(0.6), mk(0.8), mk(0.9)];
+        let svg = parameter_estimate_comparisons_chart_svg(
+            &history,
+            "first_name",
+            &ChartOptions::default(),
+        )
+        .unwrap();
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("trajectory"));
+    }
+
+    #[test]
+    fn test_parameter_trajectory_chart_empty_errors() {
+        let svg = parameter_estimate_comparisons_chart_svg(&[], "x", &ChartOptions::default());
+        assert!(svg.is_err());
     }
 
     #[test]

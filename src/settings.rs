@@ -111,6 +111,29 @@ pub struct Settings {
     pub gamma_prefix: String,
     /// Prefix for Bayes factor column names (default `"bf_"`).
     pub bf_prefix: String,
+    /// Prefix for term-frequency adjustment column names (default `"tf_"`).
+    #[serde(default = "default_tf_prefix")]
+    pub tf_adjustment_column_prefix: String,
+    /// Keep the original `{col}_l` / `{col}_r` comparison columns in predict
+    /// output (default `true`).
+    #[serde(default = "default_true")]
+    pub retain_matching_columns: bool,
+    /// Keep per-comparison Bayes-factor (`bf_*`) and term-frequency (`tf_*`)
+    /// columns in predict output (default `false`).
+    #[serde(default)]
+    pub retain_intermediate_calculation_columns: bool,
+    /// Extra input columns to carry through to predict output (suffixed
+    /// `{col}_l` / `{col}_r`).
+    #[serde(default)]
+    pub additional_columns_to_retain: Vec<String>,
+}
+
+fn default_tf_prefix() -> String {
+    "tf_".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Settings {
@@ -153,6 +176,10 @@ pub struct SettingsBuilder {
     training: TrainingSettings,
     gamma_prefix: String,
     bf_prefix: String,
+    tf_adjustment_column_prefix: String,
+    retain_matching_columns: bool,
+    retain_intermediate_calculation_columns: bool,
+    additional_columns_to_retain: Vec<String>,
 }
 
 impl SettingsBuilder {
@@ -167,6 +194,10 @@ impl SettingsBuilder {
             training: TrainingSettings::default(),
             gamma_prefix: "gamma_".to_string(),
             bf_prefix: "bf_".to_string(),
+            tf_adjustment_column_prefix: "tf_".to_string(),
+            retain_matching_columns: true,
+            retain_intermediate_calculation_columns: false,
+            additional_columns_to_retain: Vec::new(),
         }
     }
 
@@ -219,6 +250,33 @@ impl SettingsBuilder {
         self
     }
 
+    /// Set the prefix for term-frequency adjustment column names.
+    /// Default: `"tf_"`.
+    pub fn tf_adjustment_column_prefix(mut self, prefix: &str) -> Self {
+        self.tf_adjustment_column_prefix = prefix.to_string();
+        self
+    }
+
+    /// Whether to keep the original `{col}_l` / `{col}_r` columns in predict
+    /// output. Default: `true`.
+    pub fn retain_matching_columns(mut self, retain: bool) -> Self {
+        self.retain_matching_columns = retain;
+        self
+    }
+
+    /// Whether to keep per-comparison `bf_*` / `tf_*` columns in predict output.
+    /// Default: `false`.
+    pub fn retain_intermediate_calculation_columns(mut self, retain: bool) -> Self {
+        self.retain_intermediate_calculation_columns = retain;
+        self
+    }
+
+    /// Extra input columns to carry through to predict output.
+    pub fn additional_columns_to_retain(mut self, columns: &[&str]) -> Self {
+        self.additional_columns_to_retain = columns.iter().map(|c| c.to_string()).collect();
+        self
+    }
+
     /// Build the [`Settings`]. Returns an error if no comparisons were added.
     ///
     /// # Errors
@@ -229,6 +287,17 @@ impl SettingsBuilder {
         if self.comparisons.is_empty() {
             return Err(WeldrsError::Config(
                 "At least one comparison is required".into(),
+            ));
+        }
+
+        // LinkOnly needs a source-dataset column to tell records from each
+        // dataset apart (it only generates cross-dataset pairs).
+        if self.link_type == LinkType::LinkOnly && self.source_dataset_column.is_none() {
+            return Err(WeldrsError::Config(
+                "LinkType::LinkOnly requires a source_dataset_column so records from \
+                 different datasets can be distinguished. Set it via \
+                 Settings::builder(...).source_dataset_column(\"...\")."
+                    .into(),
             ));
         }
 
@@ -271,6 +340,11 @@ impl SettingsBuilder {
             training: self.training,
             gamma_prefix: self.gamma_prefix,
             bf_prefix: self.bf_prefix,
+            tf_adjustment_column_prefix: self.tf_adjustment_column_prefix,
+            retain_matching_columns: self.retain_matching_columns,
+            retain_intermediate_calculation_columns: self
+                .retain_intermediate_calculation_columns,
+            additional_columns_to_retain: self.additional_columns_to_retain,
         })
     }
 }
@@ -394,6 +468,31 @@ mod tests {
         assert!((settings.training.em_convergence - 0.001).abs() < 1e-10);
         assert_eq!(settings.training.max_iterations, 50);
         assert_eq!(settings.blocking_rules.len(), 1);
+    }
+
+    #[test]
+    fn test_builder_link_only_requires_source_dataset_column() {
+        let comp = test_helpers::exact_match_comparison("name");
+        let result = Settings::builder(LinkType::LinkOnly).comparison(comp).build();
+        match result {
+            Err(WeldrsError::Config(msg)) => {
+                assert!(
+                    msg.contains("source_dataset_column"),
+                    "error should mention source_dataset_column, got: {msg}"
+                );
+            }
+            other => panic!("expected Config error for LinkOnly without source column, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_builder_link_only_ok_with_source_dataset_column() {
+        let comp = test_helpers::exact_match_comparison("name");
+        let result = Settings::builder(LinkType::LinkOnly)
+            .comparison(comp)
+            .source_dataset_column("source")
+            .build();
+        assert!(result.is_ok(), "LinkOnly with source column should build");
     }
 
     #[test]

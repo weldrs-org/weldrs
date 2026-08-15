@@ -70,6 +70,7 @@ fn bench_predict(c: &mut Criterion) {
                     0.05,
                     "gamma_",
                     "bf_",
+                    "tf_",
                     None,
                     None,
                 )
@@ -81,7 +82,8 @@ fn bench_predict(c: &mut Criterion) {
 
         group.bench_function("direct", |b| {
             b.iter(|| {
-                predict_direct(df.clone(), &comparisons, 0.05, "gamma_", "bf_", None, None).unwrap()
+                predict_direct(df.clone(), &comparisons, 0.05, "gamma_", "bf_", "tf_", None, None)
+                    .unwrap()
             })
         });
 

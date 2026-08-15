@@ -37,14 +37,19 @@ use crate::settings::LinkType;
 /// candidate record pairs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockingRule {
-    /// Columns to equi-join on.
+    /// Columns to equi-join on (empty for a custom-predicate rule).
     pub columns: Vec<String>,
     /// Optional human-readable description of this blocking rule.
     pub description: Option<String>,
+    /// Optional custom boolean condition in Polars SQL over the suffixed
+    /// `{col}_l` / `{col}_r` columns. When set, the rule is evaluated as a
+    /// cross-join + filter instead of an equi-join (O(n²) — use sparingly).
+    #[serde(default)]
+    pub predicate_dsl: Option<String>,
 }
 
 impl BlockingRule {
-    /// Create a blocking rule that joins on the given columns.
+    /// Create a blocking rule that equi-joins on the given columns.
     ///
     /// # Examples
     ///
@@ -58,6 +63,26 @@ impl BlockingRule {
         Self {
             columns: columns.iter().map(|s| s.to_string()).collect(),
             description: None,
+            predicate_dsl: None,
+        }
+    }
+
+    /// Create a blocking rule from a custom Polars-SQL boolean condition over
+    /// the suffixed `{col}_l` / `{col}_r` columns (Splink's `CustomRule`
+    /// analog). Evaluated as a cross-join + filter.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use weldrs::blocking::BlockingRule;
+    ///
+    /// let rule = BlockingRule::custom("substr(surname_l, 1, 1) = substr(surname_r, 1, 1)");
+    /// ```
+    pub fn custom(dsl: &str) -> Self {
+        Self {
+            columns: Vec::new(),
+            description: None,
+            predicate_dsl: Some(dsl.to_string()),
         }
     }
 
@@ -65,6 +90,63 @@ impl BlockingRule {
     pub fn with_description(mut self, desc: &str) -> Self {
         self.description = Some(desc.to_string());
         self
+    }
+
+    /// The boolean SQL condition this rule represents, over suffixed columns.
+    fn condition_sql(&self) -> String {
+        if let Some(dsl) = &self.predicate_dsl {
+            dsl.clone()
+        } else if self.columns.is_empty() {
+            "true".to_string()
+        } else {
+            self.columns
+                .iter()
+                .map(|c| format!("{c}_l = {c}_r"))
+                .collect::<Vec<_>>()
+                .join(" AND ")
+        }
+    }
+
+    /// Combine two rules with logical AND.
+    ///
+    /// If both are pure equi-join rules, the result is an equi-join on the union
+    /// of their columns (the fast path — no cross-join). Otherwise it falls back
+    /// to a custom cross-join + filter.
+    pub fn and(self, other: BlockingRule) -> Self {
+        if self.predicate_dsl.is_none() && other.predicate_dsl.is_none() {
+            let mut columns = self.columns;
+            for c in other.columns {
+                if !columns.contains(&c) {
+                    columns.push(c);
+                }
+            }
+            Self {
+                columns,
+                description: None,
+                predicate_dsl: None,
+            }
+        } else {
+            Self::custom(&format!(
+                "({}) AND ({})",
+                self.condition_sql(),
+                other.condition_sql()
+            ))
+        }
+    }
+
+    /// Combine two rules with logical OR (cross-join + filter).
+    pub fn or(self, other: BlockingRule) -> Self {
+        Self::custom(&format!(
+            "({}) OR ({})",
+            self.condition_sql(),
+            other.condition_sql()
+        ))
+    }
+
+    /// Negate this rule (cross-join + filter).
+    #[allow(clippy::should_implement_trait)]
+    pub fn not(self) -> Self {
+        Self::custom(&format!("NOT ({})", self.condition_sql()))
     }
 }
 
@@ -88,11 +170,63 @@ pub fn generate_blocked_pairs(
     unique_id_col: &str,
     source_dataset_column: Option<&str>,
 ) -> Result<LazyFrame> {
+    generate_blocked_pairs_impl(
+        lf,
+        lf,
+        blocking_rules,
+        link_type,
+        unique_id_col,
+        source_dataset_column,
+        true,
+    )
+}
+
+/// Generate candidate pairs by blocking records from `right_lf` against records
+/// in `left_lf` (two distinct frames).
+///
+/// Unlike [`generate_blocked_pairs`], this produces **all** pairs satisfying a
+/// blocking rule with no self-pair / id-ordering filtering — the two frames are
+/// assumed to be distinct populations (e.g. existing records vs. new records in
+/// [`Linker::find_matches_to_new_records`](crate::linker::Linker::find_matches_to_new_records)).
+///
+/// # Errors
+///
+/// Returns an error if a Polars join or schema operation fails, or if no
+/// blocking rules are provided.
+pub fn generate_blocked_pairs_between(
+    left_lf: &LazyFrame,
+    right_lf: &LazyFrame,
+    blocking_rules: &[BlockingRule],
+    link_type: &LinkType,
+    unique_id_col: &str,
+    source_dataset_column: Option<&str>,
+) -> Result<LazyFrame> {
+    generate_blocked_pairs_impl(
+        left_lf,
+        right_lf,
+        blocking_rules,
+        link_type,
+        unique_id_col,
+        source_dataset_column,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn generate_blocked_pairs_impl(
+    left_lf: &LazyFrame,
+    right_lf: &LazyFrame,
+    blocking_rules: &[BlockingRule],
+    link_type: &LinkType,
+    unique_id_col: &str,
+    source_dataset_column: Option<&str>,
+    same_frame: bool,
+) -> Result<LazyFrame> {
     let uid_l = format!("{unique_id_col}_l");
     let uid_r = format!("{unique_id_col}_r");
 
-    let mut left = suffix_columns(lf, "_l");
-    let mut right = suffix_columns(lf, "_r");
+    let mut left = suffix_columns(left_lf, "_l");
+    let mut right = suffix_columns(right_lf, "_r");
 
     // Build a consistent column selection order for all blocking rules.
     let left_schema = left
@@ -113,50 +247,77 @@ pub fn generate_blocked_pairs(
     let mut all_pairs: Vec<LazyFrame> = Vec::new();
 
     for (i, rule) in blocking_rules.iter().enumerate() {
-        // Build the join condition: equi-join on each blocking column.
-        let left_on: Vec<Expr> = rule
-            .columns
-            .iter()
-            .map(|c| col(format!("{c}_l").as_str()))
-            .collect();
-        let right_on: Vec<Expr> = rule
-            .columns
-            .iter()
-            .map(|c| col(format!("{c}_r").as_str()))
-            .collect();
+        let joined = if let Some(dsl) = &rule.predicate_dsl {
+            // Custom predicate: evaluate via a full cross-join + filter. This is
+            // O(n²); the equi-join path below is preferred whenever possible.
+            log::warn!(
+                "Blocking rule {i} uses a custom predicate; this performs a full \
+                 cross-join (O(n²)) and may be slow on large inputs."
+            );
+            let cond = polars::sql::sql_expr(dsl).map_err(|e| {
+                crate::error::WeldrsError::Config(format!(
+                    "Invalid blocking predicate SQL '{dsl}': {e}"
+                ))
+            })?;
+            left.clone()
+                .cross_join(right.clone(), None)
+                .filter(cond)
+        } else {
+            // Equi-join on each blocking column.
+            let left_on: Vec<Expr> = rule
+                .columns
+                .iter()
+                .map(|c| col(format!("{c}_l").as_str()))
+                .collect();
+            let right_on: Vec<Expr> = rule
+                .columns
+                .iter()
+                .map(|c| col(format!("{c}_r").as_str()))
+                .collect();
 
-        let mut joined = left.clone().join(
-            right.clone(),
-            left_on,
-            right_on,
-            JoinArgs::new(JoinType::Inner),
-        );
+            let mut joined = left.clone().join(
+                right.clone(),
+                left_on,
+                right_on,
+                JoinArgs::new(JoinType::Inner),
+            );
 
-        // Inner join drops the right key columns; re-add them from the left keys
-        // (values are guaranteed equal by the join condition).
-        for c in &rule.columns {
-            joined =
-                joined.with_column(col(format!("{c}_l").as_str()).alias(format!("{c}_r").as_str()));
-        }
+            // Inner join drops the right key columns; re-add them from the left
+            // keys (values are guaranteed equal by the join condition).
+            for c in &rule.columns {
+                joined = joined
+                    .with_column(col(format!("{c}_l").as_str()).alias(format!("{c}_r").as_str()));
+            }
+            joined
+        };
 
         // Filter out self-pairs and, for deduplication, keep only uid_l < uid_r.
-        let filtered = match link_type {
-            LinkType::DedupeOnly => joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
-            LinkType::LinkOnly => {
-                if let Some(src_col) = source_dataset_column {
-                    let src_l = format!("{src_col}_l");
-                    let src_r = format!("{src_col}_r");
-                    joined.filter(
-                        col(src_l.as_str())
-                            .neq(col(src_r.as_str()))
-                            .and(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
-                    )
-                } else {
-                    // Fallback: uid inequality when no source column is set.
-                    joined.filter(col(uid_l.as_str()).neq(col(uid_r.as_str())))
+        // Cross-frame blocking (`same_frame == false`) keeps every matched pair:
+        // the two frames are distinct populations, so there are no self-pairs to
+        // remove and no ordering to enforce.
+        let filtered = if !same_frame {
+            joined
+        } else {
+            match link_type {
+                LinkType::DedupeOnly => joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
+                LinkType::LinkOnly => {
+                    if let Some(src_col) = source_dataset_column {
+                        let src_l = format!("{src_col}_l");
+                        let src_r = format!("{src_col}_r");
+                        joined.filter(
+                            col(src_l.as_str())
+                                .neq(col(src_r.as_str()))
+                                .and(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
+                        )
+                    } else {
+                        // Fallback: uid inequality when no source column is set.
+                        joined.filter(col(uid_l.as_str()).neq(col(uid_r.as_str())))
+                    }
+                }
+                LinkType::LinkAndDedupe => {
+                    joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str())))
                 }
             }
-            LinkType::LinkAndDedupe => joined.filter(col(uid_l.as_str()).lt(col(uid_r.as_str()))),
         };
 
         let with_key = filtered
@@ -219,7 +380,7 @@ mod tests {
         let uid_l = pairs.column("unique_id_l").unwrap().i64().unwrap();
         let uid_r = pairs.column("unique_id_r").unwrap().i64().unwrap();
 
-        for (l, r) in uid_l.into_iter().zip(uid_r.into_iter()) {
+        for (l, r) in uid_l.into_iter().zip(uid_r) {
             assert!(l.unwrap() < r.unwrap(), "Expected uid_l < uid_r");
         }
     }
@@ -308,6 +469,63 @@ mod tests {
     }
 
     #[test]
+    fn test_and_of_equi_rules_uses_union_columns() {
+        // AND of two pure equi-join rules stays an equi-join (fast path).
+        let rule = BlockingRule::on(&["city"]).and(BlockingRule::on(&["first_name"]));
+        assert_eq!(rule.columns, vec!["city", "first_name"]);
+        assert!(rule.predicate_dsl.is_none());
+    }
+
+    #[test]
+    fn test_custom_rule_matches_equivalent_equi_join() {
+        let lf = small_lazy_frame();
+        let from_equi = generate_blocked_pairs(
+            &lf,
+            &[BlockingRule::on(&["city"])],
+            &LinkType::DedupeOnly,
+            "unique_id",
+            None,
+        )
+        .unwrap()
+        .collect()
+        .unwrap();
+        let from_custom = generate_blocked_pairs(
+            &lf,
+            &[BlockingRule::custom("city_l = city_r")],
+            &LinkType::DedupeOnly,
+            "unique_id",
+            None,
+        )
+        .unwrap()
+        .collect()
+        .unwrap();
+
+        // Same number of candidate pairs via either path.
+        assert_eq!(from_equi.height(), from_custom.height());
+    }
+
+    #[test]
+    fn test_or_rule_unions_conditions() {
+        let lf = small_lazy_frame();
+        // city OR first_name. Cross-join + filter.
+        let rule = BlockingRule::on(&["city"]).or(BlockingRule::on(&["first_name"]));
+        assert!(rule.predicate_dsl.is_some());
+        let pairs = generate_blocked_pairs(
+            &lf,
+            &[rule],
+            &LinkType::DedupeOnly,
+            "unique_id",
+            None,
+        )
+        .unwrap()
+        .collect()
+        .unwrap();
+        // Alice(1,3) share first_name; London(1,2),(1,4),(2,4) share city → at
+        // least the city pairs plus the Alice pair are present.
+        assert!(pairs.height() >= 4);
+    }
+
+    #[test]
     fn test_link_only_with_source_column() {
         let lf = df!(
             "unique_id" => [1i64, 2, 3, 101, 102, 103],
@@ -333,7 +551,7 @@ mod tests {
         // Verify: all pairs should be cross-dataset (source_l != source_r)
         let src_l = pairs.column("source_dataset_l").unwrap().str().unwrap();
         let src_r = pairs.column("source_dataset_r").unwrap().str().unwrap();
-        for (l, r) in src_l.into_iter().zip(src_r.into_iter()) {
+        for (l, r) in src_l.into_iter().zip(src_r) {
             assert_ne!(l, r, "LinkOnly pairs must be cross-dataset");
         }
         assert!(pairs.height() > 0, "Should produce cross-dataset pairs");
