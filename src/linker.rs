@@ -15,8 +15,8 @@ use crate::comparison_vectors;
 use crate::em;
 use crate::error::{Result, WeldrsError};
 use crate::estimate_lambda;
-use crate::evaluation;
 use crate::estimate_u;
+use crate::evaluation;
 use crate::explain;
 use crate::predict;
 use crate::settings::Settings;
@@ -390,10 +390,8 @@ impl Linker {
         // Attach term-frequency columns to the input before blocking so the
         // `_l` / `_r` suffixing produces `{col}_tf_l` / `{col}_tf_r`. No-op if
         // no comparison uses term-frequency adjustments.
-        let lf_tf = crate::term_frequencies::attach_tf_columns(
-            lf.clone(),
-            &self.settings.comparisons,
-        )?;
+        let lf_tf =
+            crate::term_frequencies::attach_tf_columns(lf.clone(), &self.settings.comparisons)?;
 
         let blocked = blocking::generate_blocked_pairs(
             &lf_tf,
@@ -567,13 +565,21 @@ impl Linker {
         let mut columns: Vec<Column> = Vec::with_capacity(record_l.len() + record_r.len() + 2);
 
         for (name, val) in record_l {
-            let s = Series::from_any_values(format!("{name}_l").into(), std::slice::from_ref(val), true)
-                .map_err(WeldrsError::Polars)?;
+            let s = Series::from_any_values(
+                format!("{name}_l").into(),
+                std::slice::from_ref(val),
+                true,
+            )
+            .map_err(WeldrsError::Polars)?;
             columns.push(s.into_column());
         }
         for (name, val) in record_r {
-            let s = Series::from_any_values(format!("{name}_r").into(), std::slice::from_ref(val), true)
-                .map_err(WeldrsError::Polars)?;
+            let s = Series::from_any_values(
+                format!("{name}_r").into(),
+                std::slice::from_ref(val),
+                true,
+            )
+            .map_err(WeldrsError::Polars)?;
             columns.push(s.into_column());
         }
 
@@ -721,11 +727,15 @@ impl Linker {
         predictions: &DataFrame,
         threshold: f64,
     ) -> Result<DataFrame> {
-        let src = self.settings.source_dataset_column.as_deref().ok_or_else(|| {
-            WeldrsError::Config(
-                "cluster_using_single_best_links requires a source_dataset_column".into(),
-            )
-        })?;
+        let src = self
+            .settings
+            .source_dataset_column
+            .as_deref()
+            .ok_or_else(|| {
+                WeldrsError::Config(
+                    "cluster_using_single_best_links requires a source_dataset_column".into(),
+                )
+            })?;
         let uid_l = format!("{}_l", self.settings.unique_id_column);
         let uid_r = format!("{}_r", self.settings.unique_id_column);
         let src_l = format!("{src}_l");

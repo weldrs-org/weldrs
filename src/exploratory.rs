@@ -84,7 +84,9 @@ pub fn profile_columns(lf: &LazyFrame, columns: &[&str]) -> Result<DataFrame> {
 pub fn completeness(lf: &LazyFrame, columns: &[&str]) -> Result<DataFrame> {
     let profile = profile_columns(lf, columns)?;
     let n_non_null = profile.column("n_non_null").map_err(WeldrsError::Polars)?;
-    let null_fraction = profile.column("null_fraction").map_err(WeldrsError::Polars)?;
+    let null_fraction = profile
+        .column("null_fraction")
+        .map_err(WeldrsError::Polars)?;
     let completeness: Float64Chunked = null_fraction
         .f64()
         .map_err(WeldrsError::Polars)?
@@ -93,7 +95,10 @@ pub fn completeness(lf: &LazyFrame, columns: &[&str]) -> Result<DataFrame> {
     DataFrame::new(
         columns.len(),
         vec![
-            Column::new("column".into(), columns.iter().map(|c| c.to_string()).collect::<Vec<_>>()),
+            Column::new(
+                "column".into(),
+                columns.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+            ),
             n_non_null.clone(),
             Column::new("completeness".into(), completeness.into_series()),
         ],
@@ -161,7 +166,13 @@ mod tests {
         assert_eq!(p.height(), 2);
 
         // city: 4 rows, 3 non-null, 2 distinct, null_fraction 0.25.
-        let names: Vec<&str> = p.column("column").unwrap().str().unwrap().into_no_null_iter().collect();
+        let names: Vec<&str> = p
+            .column("column")
+            .unwrap()
+            .str()
+            .unwrap()
+            .into_no_null_iter()
+            .collect();
         let city_idx = names.iter().position(|c| *c == "city").unwrap();
         let null_frac = p.column("null_fraction").unwrap().f64().unwrap();
         assert!((null_frac.get(city_idx).unwrap() - 0.25).abs() < 1e-12);

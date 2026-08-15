@@ -439,12 +439,13 @@ pub fn m_u_parameters_chart_svg(summary: &ModelSummary, options: &ChartOptions) 
                 .map_err(|e| vis_err(e.to_string()))?;
         }
         chart
-            .draw_series(
-                u_vals
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &u)| Circle::new((SegmentValue::CenterOf(i), u), 4, rgb(options.negative_color).filled())),
-            )
+            .draw_series(u_vals.iter().enumerate().map(|(i, &u)| {
+                Circle::new(
+                    (SegmentValue::CenterOf(i), u),
+                    4,
+                    rgb(options.negative_color).filled(),
+                )
+            }))
             .map_err(|e| vis_err(e.to_string()))?;
 
         root.present().map_err(|e| vis_err(e.to_string()))?;

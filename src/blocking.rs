@@ -259,9 +259,7 @@ fn generate_blocked_pairs_impl(
                     "Invalid blocking predicate SQL '{dsl}': {e}"
                 ))
             })?;
-            left.clone()
-                .cross_join(right.clone(), None)
-                .filter(cond)
+            left.clone().cross_join(right.clone(), None).filter(cond)
         } else {
             // Equi-join on each blocking column.
             let left_on: Vec<Expr> = rule
@@ -510,16 +508,10 @@ mod tests {
         // city OR first_name. Cross-join + filter.
         let rule = BlockingRule::on(&["city"]).or(BlockingRule::on(&["first_name"]));
         assert!(rule.predicate_dsl.is_some());
-        let pairs = generate_blocked_pairs(
-            &lf,
-            &[rule],
-            &LinkType::DedupeOnly,
-            "unique_id",
-            None,
-        )
-        .unwrap()
-        .collect()
-        .unwrap();
+        let pairs = generate_blocked_pairs(&lf, &[rule], &LinkType::DedupeOnly, "unique_id", None)
+            .unwrap()
+            .collect()
+            .unwrap();
         // Alice(1,3) share first_name; London(1,2),(1,4),(2,4) share city → at
         // least the city pairs plus the Alice pair are present.
         assert!(pairs.height() >= 4);

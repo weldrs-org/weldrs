@@ -56,7 +56,7 @@ fn bench_em_500_patterns_3_comparisons(c: &mut Criterion) {
                     &[],
                     &EmRunOptions::default(),
                 )
-                    .unwrap(),
+                .unwrap(),
             )
         })
     });
@@ -82,7 +82,7 @@ fn bench_em_1000_patterns_5_comparisons(c: &mut Criterion) {
                     &[],
                     &EmRunOptions::default(),
                 )
-                    .unwrap(),
+                .unwrap(),
             )
         })
     });

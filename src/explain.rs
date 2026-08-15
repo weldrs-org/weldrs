@@ -794,7 +794,17 @@ mod tests {
         .collect()
         .unwrap();
 
-        let chart = explain_pair(&scored, 0, &[comp], 0.01, "gamma_", "bf_", "tf_", "unique_id").unwrap();
+        let chart = explain_pair(
+            &scored,
+            0,
+            &[comp],
+            0.01,
+            "gamma_",
+            "bf_",
+            "tf_",
+            "unique_id",
+        )
+        .unwrap();
 
         let col_step = &chart.steps[1];
         assert!((col_step.bayes_factor - 1.0).abs() < 1e-10);

@@ -90,12 +90,12 @@ pub fn attach_tf_columns_from(
     let mut attached: Vec<String> = Vec::new();
 
     for comp in comparisons.iter().filter(|c| c.term_frequency_adjustments) {
-        let col_name = comp.input_columns.first().ok_or_else(|| WeldrsError::Config(
-            format!(
+        let col_name = comp.input_columns.first().ok_or_else(|| {
+            WeldrsError::Config(format!(
                 "Comparison '{}' has term-frequency adjustments enabled but no input column",
                 comp.output_column_name
-            ),
-        ))?;
+            ))
+        })?;
         if attached.iter().any(|c| c == col_name) {
             continue;
         }
@@ -159,10 +159,11 @@ mod tests {
             .collect()
             .unwrap();
         // No TF comparison → no extra columns.
-        assert!(!out
-            .get_column_names()
-            .iter()
-            .any(|n| n.as_str() == "surname_tf"));
+        assert!(
+            !out.get_column_names()
+                .iter()
+                .any(|n| n.as_str() == "surname_tf")
+        );
     }
 
     #[test]
@@ -178,10 +179,11 @@ mod tests {
             .unwrap()
             .collect()
             .unwrap();
-        assert!(out
-            .get_column_names()
-            .iter()
-            .any(|n| n.as_str() == "surname_tf"));
+        assert!(
+            out.get_column_names()
+                .iter()
+                .any(|n| n.as_str() == "surname_tf")
+        );
         assert_eq!(out.height(), 5);
     }
 }

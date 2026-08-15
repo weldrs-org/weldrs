@@ -98,8 +98,12 @@ pub fn estimate_u_using_random_sampling(
     // Reduce to agreement-pattern counts, then assign each level's frequency
     // among non-matches to its u-probability. Random pairs are overwhelmingly
     // non-matches, so these frequencies estimate u.
-    let (pattern_counts, counts) =
-        crate::training_common::group_agreement_patterns(cv, comparisons, gamma_prefix, "estimate_u")?;
+    let (pattern_counts, counts) = crate::training_common::group_agreement_patterns(
+        cv,
+        comparisons,
+        gamma_prefix,
+        "estimate_u",
+    )?;
     crate::training_common::assign_level_frequencies(
         &pattern_counts,
         &counts,

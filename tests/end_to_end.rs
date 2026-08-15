@@ -59,11 +59,7 @@ fn test_known_duplicates_score_high() {
     // Check known duplicate pairs score relatively high
     // (With only 10 records and limited training, we use relaxed thresholds)
     let mut found_high_score_pair = false;
-    for ((l, r), p) in uid_l
-        .into_iter()
-        .zip(uid_r)
-        .zip(probs)
-    {
+    for ((l, r), p) in uid_l.into_iter().zip(uid_r).zip(probs) {
         if let (Some(l), Some(r), Some(prob)) = (l, r, p) {
             // Known duplicates: (1,6) Smith, (2,7) Doe, (3,8) Williams
             let is_known_dup = matches!((l, r), (1, 6) | (2, 7) | (3, 8));

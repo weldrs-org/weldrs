@@ -126,8 +126,7 @@ pub fn cumulative_comparisons_from_blocking_rules(
 pub fn n_largest_blocks(lf: &LazyFrame, rule: &BlockingRule, n: usize) -> Result<DataFrame> {
     if rule.columns.is_empty() {
         return Err(WeldrsError::Config(
-            "n_largest_blocks requires an equi-join blocking rule with at least one column"
-                .into(),
+            "n_largest_blocks requires an equi-join blocking rule with at least one column".into(),
         ));
     }
 
@@ -227,7 +226,11 @@ mod tests {
         let out = n_largest_blocks(&lf(), &BlockingRule::on(&["city"]), 1).unwrap();
         assert_eq!(out.height(), 1);
         // Largest block is London (3 records → 3 pairs).
-        let size = out.column("block_size").unwrap().cast(&DataType::UInt64).unwrap();
+        let size = out
+            .column("block_size")
+            .unwrap()
+            .cast(&DataType::UInt64)
+            .unwrap();
         assert_eq!(size.u64().unwrap().get(0), Some(3));
         let pairs = out.column("pairs").unwrap().u64().unwrap();
         assert_eq!(pairs.get(0), Some(3));

@@ -46,9 +46,7 @@ fn string_predicate_expr(
     let col_l_key = PlSmallStr::from(col_l.as_str());
     let col_r_key = PlSmallStr::from(col_r.as_str());
     as_struct(vec![col(&col_l), col(&col_r)]).map_with_fmt_str(
-        move |s: Column| {
-            par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, &predicate)
-        },
+        move |s: Column| par_pairwise_string_predicate(&s, &col_l_key, &col_r_key, &predicate),
         move |_schema, _field| Ok(Field::new(output_name.into(), DataType::Boolean)),
         output_name,
     )
@@ -381,9 +379,7 @@ impl ComparisonPredicate {
             Self::DistanceInKm {
                 lat_col, long_col, ..
             } => vec![lat_col.as_str(), long_col.as_str()],
-            Self::And(preds) | Self::Or(preds) => {
-                preds.iter().flat_map(|p| p.columns()).collect()
-            }
+            Self::And(preds) | Self::Or(preds) => preds.iter().flat_map(|p| p.columns()).collect(),
             Self::Not(pred) => pred.columns(),
             // Columns inside a raw SQL condition are not statically tracked.
             Self::CustomPredicate { .. } => vec![],
@@ -409,9 +405,11 @@ impl ComparisonPredicate {
             }
             Self::LevenshteinDistance { col: c, threshold } => {
                 let threshold = *threshold;
-                Ok(string_predicate_expr(c, "levenshtein_distance", move |l, r| {
-                    crate::string_distance::levenshtein_within(l, r, threshold)
-                }))
+                Ok(string_predicate_expr(
+                    c,
+                    "levenshtein_distance",
+                    move |l, r| crate::string_distance::levenshtein_within(l, r, threshold),
+                ))
             }
             Self::DamerauLevenshtein { col: c, threshold } => {
                 let threshold = *threshold;
@@ -429,9 +427,11 @@ impl ComparisonPredicate {
             }
             Self::Jaccard { col: c, threshold } => {
                 let threshold = *threshold;
-                Ok(string_predicate_expr(c, "jaccard_similarity", move |l, r| {
-                    crate::string_distance::jaccard_similarity(l, r) >= threshold
-                }))
+                Ok(string_predicate_expr(
+                    c,
+                    "jaccard_similarity",
+                    move |l, r| crate::string_distance::jaccard_similarity(l, r) >= threshold,
+                ))
             }
             Self::JaroWinklerSimilarity { col: c, threshold } => {
                 let threshold = *threshold;
@@ -461,14 +461,15 @@ impl ComparisonPredicate {
                         (l.cast(DataType::Int64) - r.cast(DataType::Int64)).abs()
                     }
                     DateMetric::Month => {
-                        let lm = l.clone().dt().year() * lit(12) + l.dt().month().cast(DataType::Int32);
-                        let rm = r.clone().dt().year() * lit(12) + r.dt().month().cast(DataType::Int32);
+                        let lm =
+                            l.clone().dt().year() * lit(12) + l.dt().month().cast(DataType::Int32);
+                        let rm =
+                            r.clone().dt().year() * lit(12) + r.dt().month().cast(DataType::Int32);
                         (lm.cast(DataType::Int64) - rm.cast(DataType::Int64)).abs()
                     }
-                    DateMetric::Year => {
-                        (l.dt().year().cast(DataType::Int64) - r.dt().year().cast(DataType::Int64))
-                            .abs()
-                    }
+                    DateMetric::Year => (l.dt().year().cast(DataType::Int64)
+                        - r.dt().year().cast(DataType::Int64))
+                    .abs(),
                 };
                 Ok(diff.lt_eq(lit(threshold)))
             }
@@ -480,9 +481,7 @@ impl ComparisonPredicate {
                 // Denominator = max(|l|, |r|).
                 let la = l.abs();
                 let ra = r.abs();
-                let denom = when(la.clone().gt_eq(ra.clone()))
-                    .then(la)
-                    .otherwise(ra);
+                let denom = when(la.clone().gt_eq(ra.clone())).then(la).otherwise(ra);
                 // Both zero → identical → match; otherwise compare the ratio.
                 Ok(when(denom.clone().eq(lit(0.0)))
                     .then(lit(true))
@@ -549,11 +548,9 @@ impl ComparisonPredicate {
                 Ok(acc.unwrap_or_else(|| lit(false)))
             }
             Self::Not(pred) => Ok(pred.to_expr()?.not()),
-            Self::CustomPredicate { dsl } => {
-                polars::sql::sql_expr(dsl).map_err(|e| {
-                    WeldrsError::Config(format!("Invalid custom predicate SQL '{dsl}': {e}"))
-                })
-            }
+            Self::CustomPredicate { dsl } => polars::sql::sql_expr(dsl).map_err(|e| {
+                WeldrsError::Config(format!("Invalid custom predicate SQL '{dsl}': {e}"))
+            }),
             Self::Else => Err(WeldrsError::Config(
                 "Else predicate has no expression; it is the catch-all".into(),
             )),

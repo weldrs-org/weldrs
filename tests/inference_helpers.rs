@@ -158,5 +158,8 @@ fn test_find_matches_to_new_records() {
             jon = jon.max(w);
         }
     }
-    assert!(john > jon, "John↔John ({john}) should beat John↔Jon ({jon})");
+    assert!(
+        john > jon,
+        "John↔John ({john}) should beat John↔Jon ({jon})"
+    );
 }

@@ -49,13 +49,22 @@ fn test_default_retention_drops_intermediate_keeps_matching() {
     let cols = columns(&preds);
 
     // Always present.
-    for c in ["unique_id_l", "unique_id_r", "match_weight", "match_probability", "gamma_first_name"] {
+    for c in [
+        "unique_id_l",
+        "unique_id_r",
+        "match_weight",
+        "match_probability",
+        "gamma_first_name",
+    ] {
         assert!(cols.iter().any(|x| x == c), "expected {c} in {cols:?}");
     }
     // Matching columns kept (default).
     assert!(cols.iter().any(|x| x == "first_name_l"));
     // Intermediate bf_ dropped (default).
-    assert!(!cols.iter().any(|x| x == "bf_first_name"), "bf_ should be dropped by default");
+    assert!(
+        !cols.iter().any(|x| x == "bf_first_name"),
+        "bf_ should be dropped by default"
+    );
 }
 
 #[test]
@@ -78,7 +87,10 @@ fn test_drop_matching_columns() {
         .collect()
         .unwrap();
     let cols = columns(&preds);
-    assert!(!cols.iter().any(|x| x == "first_name_l"), "matching cols should be dropped");
+    assert!(
+        !cols.iter().any(|x| x == "first_name_l"),
+        "matching cols should be dropped"
+    );
     // Gamma still kept.
     assert!(cols.iter().any(|x| x == "gamma_first_name"));
 }

@@ -159,14 +159,11 @@ fn joined_truth(
     let uid_l = format!("{unique_id_col}_l");
     let uid_r = format!("{unique_id_col}_r");
 
-    let preds = predictions
-        .clone()
-        .lazy()
-        .select([
-            col(uid_l.as_str()),
-            col(uid_r.as_str()),
-            col("match_probability"),
-        ]);
+    let preds = predictions.clone().lazy().select([
+        col(uid_l.as_str()),
+        col(uid_r.as_str()),
+        col("match_probability"),
+    ]);
 
     let joined = labels
         .clone()
@@ -393,13 +390,15 @@ mod tests {
 
     #[test]
     fn test_estimate_m_from_label_column_sets_m() {
-        let mut comps = vec![ComparisonBuilder::new("first_name")
-            .null_level()
-            .exact_match_level()
-            .jaro_winkler_level(0.8)
-            .else_level()
-            .build()
-            .unwrap()];
+        let mut comps = vec![
+            ComparisonBuilder::new("first_name")
+                .null_level()
+                .exact_match_level()
+                .jaro_winkler_level(0.8)
+                .else_level()
+                .build()
+                .unwrap(),
+        ];
 
         estimate_m_from_label_column(
             &labelled_records(),
@@ -431,13 +430,15 @@ mod tests {
         )
         .unwrap();
 
-        let mut comps = vec![ComparisonBuilder::new("first_name")
-            .null_level()
-            .exact_match_level()
-            .jaro_winkler_level(0.8)
-            .else_level()
-            .build()
-            .unwrap()];
+        let mut comps = vec![
+            ComparisonBuilder::new("first_name")
+                .null_level()
+                .exact_match_level()
+                .jaro_winkler_level(0.8)
+                .else_level()
+                .build()
+                .unwrap(),
+        ];
 
         estimate_m_from_pairwise_labels(
             &labelled_records(),
@@ -506,7 +507,11 @@ mod tests {
         );
         let pr = precision_recall_table(&predictions, &labels, "unique_id").unwrap();
         assert!(pr.height() > 0);
-        assert!(pr.get_column_names().iter().any(|s| s.as_str() == "precision"));
+        assert!(
+            pr.get_column_names()
+                .iter()
+                .any(|s| s.as_str() == "precision")
+        );
     }
 
     #[test]

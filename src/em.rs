@@ -668,7 +668,8 @@ mod tests {
         };
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves()).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
         let last = &results.final_result;
         assert!(
@@ -699,7 +700,8 @@ mod tests {
             .unwrap();
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves()).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
         let final_m = results.final_result.comparisons[0]
             .comparison_levels
@@ -728,7 +730,8 @@ mod tests {
         };
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves()).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
         let final_comp = &results.final_result.comparisons[0];
         let exact_level = final_comp
@@ -928,17 +931,16 @@ mod tests {
         };
         let initial_lambda = 0.05;
 
-        let results =
-            expectation_maximization(
-                &cv,
-                comparisons,
-                initial_lambda,
-                &training,
-                "gamma_",
-                &[],
-                &u_moves(),
-            )
-            .unwrap();
+        let results = expectation_maximization(
+            &cv,
+            comparisons,
+            initial_lambda,
+            &training,
+            "gamma_",
+            &[],
+            &u_moves(),
+        )
+        .unwrap();
 
         let final_lambda = results.final_result.lambda;
         assert!(
@@ -958,7 +960,8 @@ mod tests {
         };
 
         let results =
-            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves()).unwrap();
+            expectation_maximization(&cv, comparisons, 0.05, &training, "gamma_", &[], &u_moves())
+                .unwrap();
 
         // With store_history=false, no per-iteration history is retained.
         assert!(

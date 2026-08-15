@@ -543,8 +543,17 @@ mod tests {
         .collect()
         .unwrap();
 
-        let direct_result =
-            predict_direct(cv_eager.clone(), &[comp], 0.1, "gamma_", "bf_", "tf_", None, None).unwrap();
+        let direct_result = predict_direct(
+            cv_eager.clone(),
+            &[comp],
+            0.1,
+            "gamma_",
+            "bf_",
+            "tf_",
+            None,
+            None,
+        )
+        .unwrap();
 
         // Both paths should produce the same match probabilities (within f64 tolerance).
         let lazy_probs: Vec<f64> = lazy_result
@@ -578,8 +587,17 @@ mod tests {
         let comp = trained_comparison();
         let cv_eager = comparison_vector_lf(&[1, 0, 0]).collect().unwrap();
 
-        let result =
-            predict_direct(cv_eager, &[comp], 0.0001, "gamma_", "bf_", "tf_", Some(0.5), None).unwrap();
+        let result = predict_direct(
+            cv_eager,
+            &[comp],
+            0.0001,
+            "gamma_",
+            "bf_",
+            "tf_",
+            Some(0.5),
+            None,
+        )
+        .unwrap();
 
         let probs = result.column("match_probability").unwrap().f64().unwrap();
         for p in probs.into_iter().flatten() {

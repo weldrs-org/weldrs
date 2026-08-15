@@ -129,7 +129,10 @@ fn test_tf_lazy_and_direct_agree() {
         .collect();
     assert_eq!(lazy_probs.len(), direct_probs.len());
     for (l, d) in lazy_probs.iter().zip(direct_probs.iter()) {
-        assert!((l - d).abs() < 1e-12, "lazy/direct mismatch under TF: {l} vs {d}");
+        assert!(
+            (l - d).abs() < 1e-12,
+            "lazy/direct mismatch under TF: {l} vs {d}"
+        );
     }
 }
 

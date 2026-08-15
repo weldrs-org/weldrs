@@ -59,18 +59,20 @@ pub fn compute_graph_metrics(
             stage: "graph_metrics",
             message: format!("match_probability type error: {e}"),
         })?;
-    let uid_l = get(unique_id_l_col)?
-        .cast(&DataType::Int64)
-        .map_err(|e| WeldrsError::Training {
-            stage: "graph_metrics",
-            message: format!("Cannot cast {unique_id_l_col} to i64: {e}"),
-        })?;
-    let uid_r = get(unique_id_r_col)?
-        .cast(&DataType::Int64)
-        .map_err(|e| WeldrsError::Training {
-            stage: "graph_metrics",
-            message: format!("Cannot cast {unique_id_r_col} to i64: {e}"),
-        })?;
+    let uid_l =
+        get(unique_id_l_col)?
+            .cast(&DataType::Int64)
+            .map_err(|e| WeldrsError::Training {
+                stage: "graph_metrics",
+                message: format!("Cannot cast {unique_id_l_col} to i64: {e}"),
+            })?;
+    let uid_r =
+        get(unique_id_r_col)?
+            .cast(&DataType::Int64)
+            .map_err(|e| WeldrsError::Training {
+                stage: "graph_metrics",
+                message: format!("Cannot cast {unique_id_r_col} to i64: {e}"),
+            })?;
     let uid_l_ca = uid_l.i64().unwrap();
     let uid_r_ca = uid_r.i64().unwrap();
 
@@ -90,12 +92,8 @@ pub fn compute_graph_metrics(
             if !seen_edges.insert((a, b)) {
                 continue;
             }
-            let na = *id_to_node
-                .entry(a)
-                .or_insert_with(|| graph.add_node(a));
-            let nb = *id_to_node
-                .entry(b)
-                .or_insert_with(|| graph.add_node(b));
+            let na = *id_to_node.entry(a).or_insert_with(|| graph.add_node(a));
+            let nb = *id_to_node.entry(b).or_insert_with(|| graph.add_node(b));
             graph.add_edge(na, nb, ());
             edge_ids.push((a, b));
         }
@@ -234,7 +232,11 @@ mod tests {
         let el = m.edges.column("unique_id_l").unwrap().i64().unwrap();
         let er = m.edges.column("unique_id_r").unwrap().i64().unwrap();
         let br = m.edges.column("is_bridge").unwrap().bool().unwrap();
-        for ((l, r), b) in el.into_no_null_iter().zip(er.into_no_null_iter()).zip(br.into_no_null_iter()) {
+        for ((l, r), b) in el
+            .into_no_null_iter()
+            .zip(er.into_no_null_iter())
+            .zip(br.into_no_null_iter())
+        {
             let expected = (l, r) == (3, 4);
             assert_eq!(b, expected, "edge ({l},{r}) bridge flag");
         }

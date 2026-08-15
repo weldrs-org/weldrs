@@ -342,8 +342,7 @@ impl SettingsBuilder {
             bf_prefix: self.bf_prefix,
             tf_adjustment_column_prefix: self.tf_adjustment_column_prefix,
             retain_matching_columns: self.retain_matching_columns,
-            retain_intermediate_calculation_columns: self
-                .retain_intermediate_calculation_columns,
+            retain_intermediate_calculation_columns: self.retain_intermediate_calculation_columns,
             additional_columns_to_retain: self.additional_columns_to_retain,
         })
     }
@@ -473,7 +472,9 @@ mod tests {
     #[test]
     fn test_builder_link_only_requires_source_dataset_column() {
         let comp = test_helpers::exact_match_comparison("name");
-        let result = Settings::builder(LinkType::LinkOnly).comparison(comp).build();
+        let result = Settings::builder(LinkType::LinkOnly)
+            .comparison(comp)
+            .build();
         match result {
             Err(WeldrsError::Config(msg)) => {
                 assert!(
@@ -481,7 +482,9 @@ mod tests {
                     "error should mention source_dataset_column, got: {msg}"
                 );
             }
-            other => panic!("expected Config error for LinkOnly without source column, got: {other:?}"),
+            other => {
+                panic!("expected Config error for LinkOnly without source column, got: {other:?}")
+            }
         }
     }
 

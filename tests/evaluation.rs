@@ -90,6 +90,8 @@ fn test_linker_accuracy_analysis_end_to_end() {
     // ROC / PR tables come back well-formed.
     let roc = linker.roc_table(&predictions, &labels).unwrap();
     assert!(roc.height() > 0);
-    let pr = linker.precision_recall_table(&predictions, &labels).unwrap();
+    let pr = linker
+        .precision_recall_table(&predictions, &labels)
+        .unwrap();
     assert!(pr.height() > 0);
 }
